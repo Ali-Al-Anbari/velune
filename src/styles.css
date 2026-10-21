@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #f4eaf7;
+  background: #110d19;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body { margin: 0; min-width: 320px; }
+
+.landing-shell {
+  background: radial-gradient(ellipse at 82% 27%, #392238 0, transparent 35%),
+    radial-gradient(ellipse at 18% 82%, #2d1b35 0, transparent 39%), #110d19;
+}
+
+.brand-mark, .hero-title, footer { font-family: Georgia, "Times New Roman", serif; }
+.brand-mark { font-size: clamp(2.3rem, 7vw, 3.4rem); font-weight: 400; letter-spacing: -.065em; line-height: 1; }
+.hero-title { font-weight: 400; }
+.hero-title em { color: #e9a4bf; font-style: normal; }
+
+.art-stage { isolation: isolate; filter: saturate(.9); }
+.orb-glow { position: absolute; inset: 11% 12%; border-radius: 50%; background: #9d5b88; filter: blur(5rem); opacity: .34; }
+.orb {
+  position: absolute; width: 70%; aspect-ratio: 1; left: 15%; top: 15%; border-radius: 50%;
+  background: radial-gradient(circle at 28% 83%, #efb1c4 0, #865675 14%, #3a294a 39%, #181321 70%),
+    #33243b;
+  box-shadow: inset -1.3rem 1rem 3rem #0b0915, inset 1.3rem -1.2rem 2.5rem #b3729c,
+    0 0 5rem #aa67824d;
+}
+.orbit { position: absolute; left: 1%; top: 31%; width: 98%; height: 39%; border: 1px solid #d89ab7aa; border-radius: 50%; transform: rotate(-25deg); }
+.orbit-one { box-shadow: 0 0 1.1rem #d58ca660; }
+.orbit-two { transform: rotate(-43deg); border-color: #9c719a7a; top: 36%; height: 30%; }
+.orbit-dot { position: absolute; right: 12%; top: 38%; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #ffe2dc, #d58fac 65%, #754869); box-shadow: 0 0 1.5rem #e7a4be; }
+
+@media (min-width: 1024px) { .hero-copy { transform: translateY(-1.2rem); } }
+@media (prefers-reduced-motion: no-preference) {
+  .orb { animation: float 7s ease-in-out infinite; }
+  .orbit-one { animation: breathe 7s ease-in-out infinite; }
+  @keyframes float { 50% { transform: translateY(-.7rem); } }
+  @keyframes breathe { 50% { opacity: .55; } }
+}
