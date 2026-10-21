@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { AuthForm, RecoveryForm } from './auth/AuthForm'
 import { AuthProvider, useAuth } from './auth/session'
 import { supabase } from './lib/supabase'
+import { ShiftLogger } from './shift/ShiftLogger'
 
 function redirectFailed() {
   const query = new URLSearchParams(window.location.search)
@@ -103,13 +104,8 @@ function AppContent() {
 
   if (auth.kind === 'signedIn') {
     return <Shell action={<button type="button" className="link-button" onClick={signOut} disabled={signOutPending}>{signOutPending ? 'Signing out…' : 'Sign out'}</button>}>
-      <section className="hero relative flex flex-1 flex-col justify-center py-14 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-center lg:gap-16" aria-labelledby="app-title">
-        <div className="hero-copy relative z-10"><h1 id="app-title" className="hero-title max-w-[11ch] text-[clamp(3.7rem,13.2vw,7.6rem)] leading-[0.94] tracking-[-0.055em] lg:max-w-none lg:text-[clamp(4.5rem,6.3vw,6rem)]">Your space, <em>your pace.</em></h1>
-          <p className="mt-7 max-w-[29rem] text-lg leading-relaxed text-[#c9bfd0] sm:text-xl">Your account is ready. Shift tracking is coming soon.</p>
-          {signOutError ? <p role="alert" className="mt-4 text-[#f3b2ca]">{signOutError}</p> : null}
-        </div>
-        <div className="relative mt-10 h-[min(78vw,24rem)] min-h-64 w-full sm:mt-12 sm:h-[29rem] lg:mt-0 lg:h-[36rem]"><Orb /></div>
-      </section>
+      {signOutError ? <p role="alert" className="mt-6 text-[#f3b2ca]">{signOutError}</p> : null}
+      <ShiftLogger key={auth.user.id} userId={auth.user.id} />
     </Shell>
   }
 

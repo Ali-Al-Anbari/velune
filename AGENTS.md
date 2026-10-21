@@ -1,7 +1,7 @@
 # Velune project notes
 
 - Keep TypeScript strict and the `src/` structure small.
-- Preserve the honest coming-soon state until real shift and earnings features are requested.
+- Shift logging is implemented; keep earnings features clearly unavailable until requested.
 - Authentication uses the single browser Supabase client in `src/lib/supabase.ts`.
 - Never put service-role or secret keys in Vite environment variables. Do not cache auth API responses or private user data.
 - Review SQL migrations and apply them manually; never auto-apply production schema changes.
