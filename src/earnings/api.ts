@@ -6,6 +6,7 @@ export type WageProfile = {
   name: string
   hourly_wage_cents: number
   normally_tipped: boolean
+  /** Legacy database columns retained for reads; no longer used by the UI or earnings model. */
   include_tips_in_tax_estimate: boolean
   estimated_withholding_bps: number | null
   is_default: boolean
@@ -15,8 +16,7 @@ export type WageProfile = {
 }
 
 export type WageProfileInput = Pick<WageProfile,
-  'name' | 'hourly_wage_cents' | 'normally_tipped' |
-  'include_tips_in_tax_estimate' | 'estimated_withholding_bps'>
+  'name' | 'hourly_wage_cents' | 'normally_tipped'>
 
 export type Tip = {
   id: string
@@ -62,6 +62,14 @@ export async function archiveWageProfile(userId: string, id: string): Promise<vo
 
 export async function setDefaultWageProfile(id: string): Promise<void> {
   const { error } = await client().rpc('set_default_wage_profile', { p_profile_id: id })
+  if (error) throw error
+}
+
+export async function setShiftTipTaxWithheld(shiftId: string, amountCents: number | null): Promise<void> {
+  const { error } = await client().rpc('set_shift_tip_tax_withheld', {
+    p_shift_id: shiftId,
+    p_tip_tax_withheld_cents: amountCents,
+  })
   if (error) throw error
 }
 

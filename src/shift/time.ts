@@ -13,11 +13,13 @@ export type ShiftRecord = {
   ended_at: string | null
   breaks: BreakRecord[]
   tips?: import('../earnings/api').Tip[]
+  tip_tax_withheld_cents?: number | null
   wage_profile_id?: string | null
   wage_profile_name_snapshot?: string | null
   hourly_wage_cents_snapshot?: number | null
   hourly_wage_override_cents?: number | null
   normally_tipped_snapshot?: boolean | null
+  /** Legacy profile snapshots retained for compatibility; no tip tax estimate uses these. */
   include_tips_in_tax_estimate_snapshot?: boolean | null
   estimated_withholding_bps_snapshot?: number | null
 }

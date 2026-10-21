@@ -3,6 +3,8 @@ import { beginBreak, endBreak, endShift, loadShift, loadShiftPage, loadShiftSnap
 import { formatDuration, formatLocalTime, shiftTotals, type ShiftRecord } from './time'
 import { loadWageProfiles, type WageProfile } from '../earnings/api'
 import { TipsEditor } from '../earnings/TipsEditor'
+import { TipTaxWithheldEditor } from '../earnings/TipTaxWithheldEditor'
+import { calculateShiftEarnings } from '../earnings/shiftEarnings'
 import { centsInput, formatCents, parsePositiveCents } from '../earnings/money'
 
 const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] shadow-xl shadow-black/10 backdrop-blur-xl'
@@ -15,6 +17,14 @@ function formatCompactDuration(milliseconds: number) {
   const remainder = minutes % 60
   if (hours === 0) return `${remainder}m`
   return `${hours}h ${String(remainder).padStart(2, '0')}m`
+}
+
+function formatBreakSummary(paidMs: number, unpaidMs: number) {
+  const parts = [
+    unpaidMs > 0 ? `${formatCompactDuration(unpaidMs)} unpaid` : null,
+    paidMs > 0 ? `${formatCompactDuration(paidMs)} paid` : null,
+  ].filter((part): part is string => part !== null)
+  return parts.length > 0 ? `Breaks · ${parts.join(' · ')}` : null
 }
 
 function BreakDuration({ paidMs, unpaidMs }: { paidMs: number; unpaidMs: number }) {
@@ -39,7 +49,8 @@ function formatHistoryRange(startedAt: string, endedAt: string | null, startedDa
 
 function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: ShiftRecord; nowMs: number; onChanged: () => Promise<void>; highlighted?: boolean }) {
   const totals = shiftTotals(shift, nowMs)
-  const tipsTotal = shift.tips?.reduce((sum, tip) => sum + tip.amount_cents, 0) ?? null
+  const earnings = calculateShiftEarnings(shift, nowMs)
+  const breakSummary = shift.breaks.length > 0 ? formatBreakSummary(totals.paidBreakMs, totals.unpaidBreakMs) : null
   const startedDate = formatHistoryDate(shift.started_at)
   const endedDate = shift.ended_at ? formatHistoryDate(shift.ended_at) : null
   return <article className={`history-card ${panel} rounded-[2rem] p-5 sm:p-7 lg:p-8 ${highlighted ? 'border-[#e9a4bf99]' : ''}`}>
@@ -66,9 +77,25 @@ function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: 
       </div>
     </dl>
 
-    {tipsTotal !== null ? <div className="mt-5 space-y-2 border-t border-[#9b719a30] pt-3 text-sm lg:mt-6 lg:pt-4 lg:text-lg">
-      <div className="flex items-center justify-between gap-4 text-[#c9bfd0]"><span>Tips</span><span className="tabular-nums text-[#f4eaf7]">{formatCents(tipsTotal)}</span></div>
-    </div> : null}
+    {breakSummary ? <p className="mt-3 text-xs text-[#ac9bb7] sm:text-sm">{breakSummary}</p> : null}
+
+    <div className="mt-4 space-y-2 border-t border-[#9b719a30] pt-3 text-sm lg:mt-5 lg:pt-4 lg:text-base">
+      {earnings.grossWagesCents !== null ? <div className="flex items-center justify-between gap-4 text-[#c9bfd0]"><span>Wages</span><span className="tabular-nums text-[#f4eaf7]">{formatCents(earnings.grossWagesCents)}</span></div> : null}
+      {earnings.totalTipsCents !== null ? <div className="flex items-center justify-between gap-4 text-[#c9bfd0]"><span>Tips</span><span className="tabular-nums text-[#f4eaf7]">{formatCents(earnings.totalTipsCents)}</span></div> : null}
+    </div>
+
+    {earnings.grossEarningsCents !== null ? <>
+      <div className="mt-3 flex items-center justify-between gap-4 border-t border-[#9b719a30] pt-3">
+        <span className="text-sm font-medium text-[#d8c8e2]">Gross earnings</span>
+        <span className="text-base font-medium tabular-nums text-[#e8d8ec]">{formatCents(earnings.grossEarningsCents)}</span>
+      </div>
+      {earnings.tipTaxWithheldCents !== null ? <div className="flex items-center justify-between gap-4 text-sm text-[#c9bfd0]"><span>Tip tax withheld</span><span className="tabular-nums text-[#f4eaf7]">−{formatCents(earnings.tipTaxWithheldCents)}</span></div> : null}
+      <div className="mt-2 flex items-center justify-between gap-4 border-t border-[#9b719a30] pt-3">
+        <span className="text-sm font-medium text-[#e8d8ec]">After tip withholding</span>
+        <span className="font-serif text-2xl tabular-nums text-[#e9a4bf] sm:text-3xl">{earnings.earningsAfterTipWithholdingCents === null ? '—' : formatCents(earnings.earningsAfterTipWithholdingCents)}</span>
+      </div>
+      <p className="mt-1 text-xs text-[#ac9bb7]">Hourly-wage taxes and other deductions are not included.</p>
+    </> : earnings.tipTaxWithheldCents !== null ? <div className="flex items-center justify-between gap-4 text-sm text-[#c9bfd0]"><span>Tip tax withheld</span><span className="tabular-nums text-[#f4eaf7]">−{formatCents(earnings.tipTaxWithheldCents)}</span></div> : null}
 
     <details className="shift-details mt-5 overflow-hidden rounded-2xl border border-[#9b719a50] bg-[#33243d] lg:mt-6">
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-[#e8d8ec] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#f2bfd2] lg:min-h-14 lg:px-5 lg:text-base">
@@ -76,11 +103,7 @@ function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: 
         <svg className="shift-details-chevron h-4 w-4 shrink-0 text-[#c9a8c5] transition-transform" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </summary>
       <div className="space-y-3 border-t border-[#9b719a35] px-4 pb-4 pt-3 text-sm">
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[#c9bfd0]">
-          <dt>Paid breaks</dt><dd className="text-right tabular-nums text-[#f4eaf7]">{formatCompactDuration(totals.paidBreakMs)}</dd>
-          <dt>Unpaid breaks</dt><dd className="text-right tabular-nums text-[#f4eaf7]">{formatCompactDuration(totals.unpaidBreakMs)}</dd>
-          <dt>Elapsed time</dt><dd className="text-right tabular-nums text-[#f4eaf7]">{formatCompactDuration(totals.elapsedMs)}</dd>
-        </dl>
+        <TipTaxWithheldEditor shift={shift} onChanged={onChanged} />
         <TipsEditor shift={shift} onChanged={onChanged} showTotal={false} />
       </div>
     </details>
@@ -306,6 +329,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
           <div className="flex w-full justify-end gap-3"><button type="button" className="link-button px-3 py-2 text-sm" disabled={controlsDisabled} onClick={() => { setBreakPanelOpen(false); setPaidBreak(false) }}>Cancel</button><button type="button" className={secondaryButton} disabled={controlsDisabled || (breakRequest.current !== null && breakRequest.current.paid !== paidBreak)} onClick={() => startBreak(paidBreak)}>{busy === 'break' ? 'Saving…' : breakRequest.current ? `Retry ${breakRequest.current.paid ? 'paid' : 'unpaid'} break` : 'Start break'}</button></div>
         </div> : null}
         <TipsEditor shift={active} onChanged={() => refreshTipShift(active.id)} />
+        <TipTaxWithheldEditor shift={active} onChanged={() => refreshTipShift(active.id)} />
       </section> : <section aria-labelledby="ready-title"><h1 id="ready-title" className="font-serif text-4xl tracking-tight sm:text-5xl">Ready when you are.</h1>
         <div className={`${panel} relative mt-6 overflow-hidden p-7 sm:p-9`}><div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border border-[#bd83aa55] bg-[radial-gradient(circle_at_30%_70%,#8d587966,transparent_65%)]" aria-hidden="true" />
           <p className="relative font-serif text-2xl text-[#f4dce9]">Start a shift to begin tracking your time.</p>

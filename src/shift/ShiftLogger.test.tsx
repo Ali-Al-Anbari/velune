@@ -72,10 +72,10 @@ describe('shift logger', () => {
     expect(api.startShift.mock.calls[0]?.slice(1)).toEqual(['night', 2475])
   })
 
-  it('shows the saved wage snapshot even after the profile changes', async () => {
+  it('shows the saved wage snapshot and gross earnings even after the profile changes', async () => {
     const saved = { ...base, started_at: new Date('2026-10-20T22:00:00-04:00').toISOString(), ended_at: new Date('2026-10-21T06:00:00-04:00').toISOString(), wage_profile_id: 'day',
       wage_profile_name_snapshot: 'Day Shift', hourly_wage_cents_snapshot: 1850,
-      hourly_wage_override_cents: null, breaks: [{ id: 'break-saved', shift_id: base.id,
+      hourly_wage_override_cents: null, tip_tax_withheld_cents: 350, breaks: [{ id: 'break-saved', shift_id: base.id,
         started_at: '2026-10-21T01:00:00-04:00', ended_at: '2026-10-21T01:15:00-04:00', is_paid: true }],
       tips: [{ id: 'tip-saved', shift_id: base.id, amount_cents: 2500, label: 'Cash' as const, created_at: '2026-10-21T06:00:00-04:00', updated_at: '2026-10-21T06:00:00-04:00' }] }
     api.loadShiftSnapshot.mockResolvedValue(snapshot(null, [saved]))
@@ -87,17 +87,64 @@ describe('shift logger', () => {
     expect(card).toHaveTextContent('Tue, Oct 20')
     expect(card).toHaveTextContent('Wed, Oct 21')
     expect(card).toHaveTextContent('8h 00m')
+    expect(card).toHaveTextContent('$148.00')
     expect(card).toHaveTextContent('$25.00')
-    expect(card).not.toHaveTextContent('Wages')
-    expect(card).not.toHaveTextContent('Total gross')
+    expect(card).toHaveTextContent('Gross earnings')
+    expect(card).toHaveTextContent('$173.00')
+    expect(card).toHaveTextContent('Tip tax withheld−$3.50')
+    expect(card).toHaveTextContent('After tip withholding')
+    expect(card).toHaveTextContent('$169.50')
+    expect(card).toHaveTextContent('Hourly-wage taxes and other deductions are not included.')
+    expect(card).toHaveTextContent('Breaks · 15m paid')
+    expect(card).not.toHaveTextContent('Paid breaks')
+    expect(card).not.toHaveTextContent('Unpaid breaks')
+    const grossLabel = within(card).getByText('Gross earnings')
+    expect(grossLabel.nextElementSibling).not.toHaveClass('text-[#e9a4bf]')
+    const afterWithholdingLabel = within(card).getByText('After tip withholding')
+    expect(afterWithholdingLabel.nextElementSibling).toHaveClass('text-[#e9a4bf]')
     const summary = within(card).getByText('Shift details').closest('summary')!
     const details = summary.parentElement as HTMLDetailsElement
     expect(details).not.toHaveAttribute('open')
     fireEvent.click(summary)
     expect(details).toHaveProperty('open', true)
-    expect(screen.getByText('Paid breaks')).toBeInTheDocument()
-    expect(screen.getByText('Elapsed time')).toBeInTheDocument()
+    expect(within(details).queryByText('Paid breaks')).not.toBeInTheDocument()
+    expect(within(details).queryByText('Unpaid breaks')).not.toBeInTheDocument()
+    expect(within(details).queryByLabelText('Tip tax withheld ($)')).not.toBeInTheDocument()
+    fireEvent.click(within(details).getByRole('button', { name: 'Edit tip tax withholding' }))
+    expect(within(details).getByLabelText('Tip tax withheld ($)')).toHaveValue('3.50')
     expect(within(details).getByRole('button', { name: 'Manage tips' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['zero', [], null],
+    ['paid-only', [{ id: 'p', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:10:00Z', is_paid: true }], 'Breaks · 10m paid'],
+    ['unpaid-only', [{ id: 'u', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:30:00Z', is_paid: false }], 'Breaks · 30m unpaid'],
+    ['mixed', [
+      { id: 'u', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:20:00Z', is_paid: false },
+      { id: 'p', shift_id: base.id, started_at: '2026-10-21T10:20:00Z', ended_at: '2026-10-21T10:30:00Z', is_paid: true },
+    ], 'Breaks · 20m unpaid · 10m paid'],
+  ])('shows one compact break summary for %s history', async (_kind, breaks, summaryText) => {
+    const saved = { ...base, started_at: '2026-10-21T09:00:00Z', ended_at: '2026-10-21T17:00:00Z', breaks }
+    api.loadShiftSnapshot.mockResolvedValue(snapshot(null, [saved]))
+    render(<ShiftLogger userId="user-a" />)
+    const card = await screen.findByRole('article')
+    if (summaryText === null) {
+      expect(within(card).queryByText(/Breaks ·|Paid breaks|Unpaid breaks/)).not.toBeInTheDocument()
+    } else {
+      expect(within(card).getAllByText(summaryText, { exact: true })).toHaveLength(1)
+      expect(card).not.toHaveTextContent('Paid breaks')
+      expect(card).not.toHaveTextContent('Unpaid breaks')
+    }
+  })
+
+  it('keeps an explicit zero withholding visible as a deduction entry', async () => {
+    const saved = { ...base, started_at: '2026-10-21T09:00:00Z', ended_at: '2026-10-21T17:00:00Z',
+      hourly_wage_cents_snapshot: 2000, tip_tax_withheld_cents: 0, tips: [] }
+    api.loadShiftSnapshot.mockResolvedValue(snapshot(null, [saved]))
+    render(<ShiftLogger userId="user-a" />)
+    const card = await screen.findByRole('article')
+    expect(card).toHaveTextContent('Tip tax withheld−$0.00')
+    expect(card).toHaveTextContent('After tip withholding')
   })
 
   it('defaults to unpaid, supports paid breaks, and resets the toggle for each break', async () => {

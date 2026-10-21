@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase'
 import type { ShiftRecord } from './time'
 
 const pageSize = 20
-const fields = 'id, user_id, started_at, ended_at, wage_profile_id, wage_profile_name_snapshot, hourly_wage_cents_snapshot, hourly_wage_override_cents, normally_tipped_snapshot, include_tips_in_tax_estimate_snapshot, estimated_withholding_bps_snapshot, breaks(id, shift_id, started_at, ended_at, is_paid), tips(id, shift_id, amount_cents, label, created_at, updated_at)'
+const fields = 'id, user_id, started_at, ended_at, wage_profile_id, wage_profile_name_snapshot, hourly_wage_cents_snapshot, hourly_wage_override_cents, normally_tipped_snapshot, include_tips_in_tax_estimate_snapshot, estimated_withholding_bps_snapshot, tip_tax_withheld_cents, breaks(id, shift_id, started_at, ended_at, is_paid), tips(id, shift_id, amount_cents, label, created_at, updated_at)'
 
 function client() {
   if (!supabase) throw new Error('Supabase is unavailable.')

@@ -8,6 +8,15 @@ export function parsePositiveCents(value: string): number | null {
   return Number.isSafeInteger(cents) && cents >= 1 && cents <= MAX_CENTS ? cents : null
 }
 
+export function parseNonnegativeCents(value: string): number | null {
+  const input = value.trim()
+  if (input === '') return null
+  if (!/^(?:\d+)(?:\.\d{1,2})?$/.test(input)) return NaN
+  const [whole, fraction = ''] = input.split('.')
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+  return Number.isSafeInteger(cents) && cents >= 0 && cents <= MAX_CENTS ? cents : NaN
+}
+
 export function parseWithholdingBps(value: string): number | null {
   const input = value.trim()
   if (input === '') return null
@@ -18,7 +27,8 @@ export function parseWithholdingBps(value: string): number | null {
 }
 
 export function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`
+  const sign = cents < 0 ? '−' : ''
+  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`
 }
 
 export function centsInput(cents: number | null): string {

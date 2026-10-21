@@ -33,7 +33,7 @@ describe('wage profiles screen', () => {
     fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'Day Shift' } })
     fireEvent.change(screen.getByLabelText('Hourly wage ($)'), { target: { value: '18.50' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    await waitFor(() => expect(api.createWageProfile).toHaveBeenCalledWith('user-a', expect.objectContaining({ name: 'Day Shift', hourly_wage_cents: 1850 })))
+    await waitFor(() => expect(api.createWageProfile).toHaveBeenCalledWith('user-a', { name: 'Day Shift', hourly_wage_cents: 1850, normally_tipped: false }))
     await waitFor(() => expect(api.setDefaultWageProfile).toHaveBeenCalledWith('profile-a'))
     expect(await screen.findByText('Day Shift')).toBeInTheDocument()
     expect(screen.getByText('Default')).toBeInTheDocument()
@@ -62,7 +62,7 @@ describe('wage profiles screen', () => {
     expect(await screen.findByRole('heading', { name: 'Archived profiles' })).toBeInTheDocument()
   })
 
-  it('validates name, wage, and withholding before saving', async () => {
+  it('validates profile name and wage before saving', async () => {
     render(<WageProfiles userId="user-a" onBack={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: 'New profile' }))
     fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: '  ' } })
@@ -73,10 +73,19 @@ describe('wage profiles screen', () => {
     fireEvent.change(screen.getByLabelText('Hourly wage ($)'), { target: { value: '18.999' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
     expect(screen.getByRole('alert')).toHaveTextContent('hourly wage')
-    fireEvent.change(screen.getByLabelText('Hourly wage ($)'), { target: { value: '18.50' } })
-    fireEvent.change(screen.getByLabelText(/Estimated withholding/), { target: { value: '101' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Withholding')
     expect(api.createWageProfile).not.toHaveBeenCalled()
+  })
+
+  it('omits profile level tax controls from create and edit forms and profile cards', async () => {
+    api.loadWageProfiles.mockResolvedValue([profile])
+    render(<WageProfiles userId="user-a" onBack={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'New profile' }))
+    expect(screen.queryByText(/Include tips in future tax estimates/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Estimated withholding/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.queryByText(/Include tips in future tax estimates/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Estimated withholding/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/tips included in Velune/i)).not.toBeInTheDocument()
   })
 })

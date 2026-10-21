@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { archiveWageProfile, createWageProfile, loadWageProfiles, setDefaultWageProfile, updateWageProfile, type WageProfile } from './api'
-import { centsInput, formatCents, parsePositiveCents, parseWithholdingBps } from './money'
+import { centsInput, formatCents, parsePositiveCents } from './money'
 
 const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] p-5 shadow-xl shadow-black/10 backdrop-blur-xl sm:p-6'
 const button = 'rounded-2xl bg-[#e9a4bf] px-5 py-3 text-sm font-semibold text-[#241426] transition hover:bg-[#f2bfd2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55'
@@ -17,8 +17,6 @@ export function WageProfiles({ userId, onBack }: { userId: string; onBack: () =>
   const [name, setName] = useState('')
   const [wage, setWage] = useState('')
   const [normallyTipped, setNormallyTipped] = useState(false)
-  const [includeTips, setIncludeTips] = useState(true)
-  const [withholding, setWithholding] = useState('')
   const [makeDefault, setMakeDefault] = useState(false)
   const [archiveTarget, setArchiveTarget] = useState<WageProfile | null>(null)
 
@@ -31,15 +29,14 @@ export function WageProfiles({ userId, onBack }: { userId: string; onBack: () =>
   useEffect(() => { void reload().catch((cause) => { setError(cause instanceof Error ? cause.message : 'Could not load wage profiles.'); setLoading(false) }) }, [reload])
 
   function openCreate() {
-    setEditing(null); setName(''); setWage(''); setNormallyTipped(false); setIncludeTips(true); setWithholding('')
+    setEditing(null); setName(''); setWage(''); setNormallyTipped(false)
     setMakeDefault(!profiles.some((profile) => profile.is_default && !profile.is_archived))
     setError(''); setFormOpen(true)
   }
 
   function openEdit(profile: WageProfile) {
     setEditing(profile); setName(profile.name); setWage(centsInput(profile.hourly_wage_cents))
-    setNormallyTipped(profile.normally_tipped); setIncludeTips(profile.include_tips_in_tax_estimate)
-    setWithholding(profile.estimated_withholding_bps == null ? '' : (profile.estimated_withholding_bps / 100).toFixed(2))
+    setNormallyTipped(profile.normally_tipped)
     setMakeDefault(profile.is_default); setError(''); setFormOpen(true)
   }
 
@@ -47,15 +44,12 @@ export function WageProfiles({ userId, onBack }: { userId: string; onBack: () =>
     event.preventDefault()
     const cleanName = name.trim()
     const cents = parsePositiveCents(wage)
-    const bps = parseWithholdingBps(withholding)
     if (cleanName.length < 2 || cleanName.length > 80 || !/\S/.test(cleanName)) { setError('Enter a meaningful name, 2 to 80 characters.'); return }
     if (cents == null) { setError('Enter an hourly wage from $0.01 to $10,000.00.'); return }
-    if (Number.isNaN(bps)) { setError('Withholding must be between 0% and 100%, with up to two decimals.'); return }
     setBusy(true); setError(''); setNotice('')
     let profileSaved = false
     try {
-      const input = { name: cleanName, hourly_wage_cents: cents, normally_tipped: normallyTipped,
-        include_tips_in_tax_estimate: includeTips, estimated_withholding_bps: bps }
+      const input = { name: cleanName, hourly_wage_cents: cents, normally_tipped: normallyTipped }
       const saved = editing ? await updateWageProfile(userId, editing.id, input) : await createWageProfile(userId, input)
       profileSaved = true
       setEditing(saved)
@@ -103,9 +97,6 @@ export function WageProfiles({ userId, onBack }: { userId: string; onBack: () =>
       <label className="block text-sm text-[#d9cde0]">Profile name<input className={field} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} placeholder="Day Shift" required /></label>
       <label className="block text-sm text-[#d9cde0]">Hourly wage ($)<input className={field} type="text" inputMode="decimal" value={wage} onChange={(event) => setWage(event.target.value)} placeholder="18.50" required /></label>
       <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#e9a4bf]" checked={normallyTipped} onChange={(event) => setNormallyTipped(event.target.checked)} />This job normally receives tips</label>
-      <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#e9a4bf]" checked={includeTips} onChange={(event) => setIncludeTips(event.target.checked)} />Include tips in future tax estimates</label>
-      <p className="text-xs leading-relaxed text-[#ac9bb7]">This preference only changes Velune’s future estimate. Tips may still be taxable under applicable law.</p>
-      <label className="block text-sm text-[#d9cde0]">Estimated withholding (%) · optional<input className={field} type="text" inputMode="decimal" value={withholding} onChange={(event) => setWithholding(event.target.value)} placeholder="15.00" /></label>
       {!editing?.is_default ? <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-[#e9a4bf]" checked={makeDefault} onChange={(event) => setMakeDefault(event.target.checked)} />Make default for new shifts</label> : null}
       <div className="flex flex-wrap gap-3"><button type="submit" className={button} disabled={busy}>{busy ? 'Saving…' : 'Save profile'}</button><button type="button" className="link-button" disabled={busy} onClick={() => setFormOpen(false)}>Cancel</button></div>
     </form> : null}
@@ -115,8 +106,7 @@ export function WageProfiles({ userId, onBack }: { userId: string; onBack: () =>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">{active.map((profile) => <article key={profile.id} className={panel}>
         <div className="flex items-start justify-between gap-3"><h3 className="font-serif text-xl">{profile.name}</h3>{profile.is_default ? <span className="rounded-full bg-[#70465e] px-2.5 py-1 text-xs text-[#f4dce9]">Default</span> : null}</div>
         <p className="mt-2 text-2xl tabular-nums text-[#f4dce9]">{formatCents(profile.hourly_wage_cents)}<span className="ml-1 text-sm text-[#c9bfd0]">/ hour</span></p>
-        <p className="mt-2 text-xs text-[#c9bfd0]">{profile.normally_tipped ? 'Normally tipped' : 'Tips optional'} · {profile.estimated_withholding_bps == null ? 'No withholding estimate' : `${(profile.estimated_withholding_bps / 100).toFixed(2)}% estimated withholding`}</p>
-        <p className="mt-1 text-xs text-[#ac9bb7]">{profile.include_tips_in_tax_estimate ? 'Tips included in Velune’s future estimate' : 'Tips excluded from Velune’s future estimate'}</p>
+        <p className="mt-2 text-xs text-[#c9bfd0]">{profile.normally_tipped ? 'Normally tipped' : 'Tips optional'}</p>
         <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm"><button type="button" className="link-button" disabled={busy} onClick={() => openEdit(profile)}>Edit</button>{!profile.is_default ? <button type="button" className="link-button" disabled={busy} onClick={() => void setDefault(profile)}>Set default</button> : null}<button type="button" className="link-button" disabled={busy} onClick={() => setArchiveTarget(profile)}>Archive</button></div>
       </article>)}</div>
     </section>
