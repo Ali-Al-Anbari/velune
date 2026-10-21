@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { beginBreak, endBreak, endShift, loadShiftPage, loadShiftSnapshot, startShift } from './api'
+import { beginBreak, endBreak, endShift, loadShift, loadShiftPage, loadShiftSnapshot, startShift } from './api'
 import { formatDuration, formatLocalDate, formatLocalTime, shiftTotals, type ShiftRecord } from './time'
+import { loadWageProfiles, type WageProfile } from '../earnings/api'
+import { TipsEditor } from '../earnings/TipsEditor'
+import { centsInput, formatCents, parsePositiveCents } from '../earnings/money'
 
 const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] shadow-xl shadow-black/10 backdrop-blur-xl'
 const primaryButton = 'rounded-2xl bg-[#e9a4bf] px-6 py-3.5 text-base font-semibold text-[#241426] transition hover:bg-[#f2bfd2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55'
@@ -26,7 +29,7 @@ function BreakTime({ paidMs, unpaidMs, active, id }: { paidMs: number; unpaidMs:
   </section>
 }
 
-function HistoryItem({ shift, nowMs, highlighted = false }: { shift: ShiftRecord; nowMs: number; highlighted?: boolean }) {
+function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: ShiftRecord; nowMs: number; onChanged: () => Promise<void>; highlighted?: boolean }) {
   const totals = shiftTotals(shift, nowMs)
   return <article className={`${panel} p-5 sm:p-6 ${highlighted ? 'border-[#e9a4bf99]' : ''}`}>
     <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -34,11 +37,13 @@ function HistoryItem({ shift, nowMs, highlighted = false }: { shift: ShiftRecord
       {highlighted ? <span className="text-sm text-[#e9a4bf]">Just saved</span> : null}
     </div>
     <p className="mt-1 text-sm text-[#c9bfd0]">{formatLocalTime(shift.started_at)} – {shift.ended_at ? `${formatLocalTime(shift.ended_at)}${formatLocalDate(shift.started_at) !== formatLocalDate(shift.ended_at) ? ` · ${formatLocalDate(shift.ended_at)}` : ''}` : 'In progress'} · local time</p>
-    <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[#9b719a30] pt-4 text-sm sm:grid-cols-3">
+    <p className="mt-2 text-xs text-[#c9bfd0]">{shift.wage_profile_name_snapshot ?? 'No wage profile'}{shift.hourly_wage_cents_snapshot != null ? ` · ${formatCents(shift.hourly_wage_cents_snapshot)}/hour${shift.hourly_wage_override_cents != null ? ' override' : ''}` : ''}</p>
+    <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[#9b719a30] pt-4 text-sm">
       <div><dt className="text-[#ac9bb7]">Elapsed</dt><dd className="mt-1 tabular-nums">{formatDuration(totals.elapsedMs)}</dd></div>
       <div><dt className="text-[#ac9bb7]">Worked</dt><dd className="mt-1 tabular-nums">{formatDuration(totals.workedMs)}</dd></div>
     </dl>
-    <div className="mt-4"><BreakTime id={`break-time-${shift.id}`} paidMs={totals.paidBreakMs} unpaidMs={totals.unpaidBreakMs} /></div>
+    <div className="mt-4"><BreakTime id={`break-time-${highlighted ? 'completed-' : ''}${shift.id}`} paidMs={totals.paidBreakMs} unpaidMs={totals.unpaidBreakMs} /></div>
+    <TipsEditor shift={shift} onChanged={onChanged} />
   </article>
 }
 
@@ -49,6 +54,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
   const [hasMore, setHasMore] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [profileError, setProfileError] = useState('')
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -57,7 +63,11 @@ export function ShiftLogger({ userId }: { userId: string }) {
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [paidBreak, setPaidBreak] = useState(false)
   const [completedId, setCompletedId] = useState<string | null>(null)
-  const startRequestId = useRef<string | null>(null)
+  const [profiles, setProfiles] = useState<WageProfile[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
+  const [wageOverride, setWageOverride] = useState('')
+  const profileChoiceTouched = useRef(false)
+  const startRequest = useRef<{ id: string; profileId: string | null; overrideCents: number | null } | null>(null)
   const breakRequest = useRef<{ id: string; paid: boolean } | null>(null)
   const loadVersion = useRef(0)
   const busyRef = useRef(false)
@@ -65,19 +75,36 @@ export function ShiftLogger({ userId }: { userId: string }) {
   const refresh = useCallback(async () => {
     const version = ++loadVersion.current
     try {
-      const snapshot = await loadShiftSnapshot(userId)
+      const [shiftResult, profileResult] = await Promise.allSettled([loadShiftSnapshot(userId), loadWageProfiles(userId)])
       if (version !== loadVersion.current) return
+      if (shiftResult.status === 'rejected') throw shiftResult.reason
+      const snapshot = shiftResult.value
       setActive(snapshot.active)
       setHistory(snapshot.shifts)
       setHasMore(snapshot.hasMore)
+      if (profileResult.status === 'fulfilled') {
+        const wageProfiles = profileResult.value
+        setProfiles(wageProfiles)
+        setSelectedProfileId((previous) => {
+          if (profileChoiceTouched.current && (previous === null || wageProfiles.some((profile) => profile.id === previous && !profile.is_archived))) return previous
+          return wageProfiles.find((profile) => profile.is_default && !profile.is_archived)?.id ?? null
+        })
+        setProfileError('')
+      } else setProfileError('Could not load wage profiles. Refresh before starting a shift.')
       setLoadError('')
-      if (snapshot.active) startRequestId.current = null
+      if (snapshot.active) startRequest.current = null
       if (snapshot.active?.breaks.some((item) => !item.ended_at)) breakRequest.current = null
       setNowMs(Date.now())
     } catch (cause) {
       if (version === loadVersion.current) setLoadError(cause instanceof Error ? cause.message : 'Could not load your shifts. Check your connection and retry.')
       throw cause
     }
+  }, [userId])
+
+  const refreshTipShift = useCallback(async (shiftId: string) => {
+    const updated = await loadShift(userId, shiftId)
+    setActive((previous) => previous?.id === shiftId ? updated : previous)
+    setHistory((previous) => previous.map((shift) => shift.id === shiftId ? updated : shift))
   }, [userId])
 
   useEffect(() => {
@@ -129,11 +156,16 @@ export function ShiftLogger({ userId }: { userId: string }) {
   }
 
   function start() {
-    const id = startRequestId.current ?? crypto.randomUUID()
-    startRequestId.current = id
+    const overrideCents = wageOverride.trim() === '' ? null : parsePositiveCents(wageOverride)
+    if (wageOverride.trim() !== '' && overrideCents === null) {
+      setActionError('Enter an hourly wage override from $0.01 to $10,000.00.')
+      return
+    }
+    const request = startRequest.current ?? { id: crypto.randomUUID(), profileId: selectedProfileId, overrideCents }
+    startRequest.current = request
     void perform('start', async () => {
-      await startShift(id)
-      startRequestId.current = null
+      await startShift(request.id, request.profileId, request.overrideCents)
+      startRequest.current = null
     }, 'Shift started and saved.')
   }
 
@@ -187,6 +219,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
   return <div className="relative z-10 w-full py-12 sm:py-16" aria-label="Shift logger">
     {initialLoading ? <p role="status" className="text-[#c9bfd0]">Loading your shifts…</p> : null}
     {loadError ? <div role="alert" className={`${panel} mb-6 p-5 text-[#f5dce8]`}><p>Could not refresh your shifts: {loadError}</p><button type="button" className="link-button mt-3" onClick={() => void refresh().catch(() => {})}>Retry loading</button></div> : null}
+    {profileError ? <div role="alert" className="mb-6 rounded-2xl border border-[#e9a4bf55] bg-[#512b43] p-4 text-sm text-[#ffe4ed]">{profileError}<button type="button" className="link-button ml-3" onClick={() => void refresh().catch(() => {})}>Retry</button></div> : null}
     {actionError ? <div role="alert" className="mb-6 rounded-2xl border border-[#e9a4bf55] bg-[#512b43] p-4 text-sm text-[#ffe4ed]"><p>{actionError}</p><button type="button" className="link-button mt-2" onClick={() => void refresh().catch(() => {})}>Refresh state</button></div> : null}
     {notice ? <p role="status" className="mb-6 rounded-2xl bg-[#46314d] p-4 text-sm text-[#f4eaf7]">{notice}</p> : null}
 
@@ -198,6 +231,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
           <p className="relative text-sm text-[#c9bfd0]">Elapsed time</p>
           <p className="relative mt-2 font-serif text-[clamp(3.5rem,14vw,6rem)] leading-none tracking-[-0.04em] text-[#f4dce9] tabular-nums" aria-live="off">{formatDuration(totals!.elapsedMs)}</p>
           <p className="relative mt-5 text-sm text-[#c9bfd0]">Started {formatLocalDate(active.started_at)} at {formatLocalTime(active.started_at)} · local time</p>
+          <p className="relative mt-2 text-sm text-[#f4dce9]">{active.wage_profile_name_snapshot ?? 'No wage profile'}{active.hourly_wage_cents_snapshot != null ? ` · ${formatCents(active.hourly_wage_cents_snapshot)}/hour${active.hourly_wage_override_cents != null ? ' override' : ''}` : ''}</p>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Metric label="Worked time" value={formatDuration(totals!.workedMs)} />
@@ -213,16 +247,21 @@ export function ShiftLogger({ userId }: { userId: string }) {
               <div className="mt-4 flex flex-col gap-3 sm:flex-row"><button type="button" className={secondaryButton} disabled={controlsDisabled || (breakRequest.current !== null && breakRequest.current.paid !== paidBreak)} onClick={() => startBreak(paidBreak)}>{busy === 'break' ? 'Saving…' : breakRequest.current ? `Retry ${breakRequest.current.paid ? 'paid' : 'unpaid'} break` : 'Start break'}</button><button type="button" className={primaryButton} disabled={controlsDisabled} onClick={() => setConfirmEnd(true)}>End shift</button></div>
             </>}
         </div>
+        <div className={`${panel} mt-4 p-5 sm:p-6`}><TipsEditor shift={active} onChanged={() => refreshTipShift(active.id)} /></div>
       </section> : <section aria-labelledby="ready-title"><h1 id="ready-title" className="font-serif text-4xl tracking-tight sm:text-5xl">Ready when you are.</h1>
         <div className={`${panel} relative mt-6 overflow-hidden p-7 sm:p-9`}><div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border border-[#bd83aa55] bg-[radial-gradient(circle_at_30%_70%,#8d587966,transparent_65%)]" aria-hidden="true" />
           <p className="relative font-serif text-2xl text-[#f4dce9]">Start a shift to begin tracking your time.</p>
-          <button type="button" className={`${primaryButton} relative mt-6 w-full sm:w-auto`} disabled={controlsDisabled} onClick={start}>{busy === 'start' ? 'Saving…' : startRequestId.current ? 'Retry start shift' : 'Start shift'}</button>
+          <div className="relative mt-5 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm text-[#c9bfd0]">Wage profile<select className="mt-1.5 w-full rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-3 text-[#f4eaf7]" value={selectedProfileId ?? ''} disabled={controlsDisabled || startRequest.current !== null} onChange={(event) => { profileChoiceTouched.current = true; setSelectedProfileId(event.target.value || null) }}><option value="">No profile</option>{profiles.filter((profile) => !profile.is_archived).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.is_default ? ' · default' : ''}</option>)}</select></label>
+            <label className="text-sm text-[#c9bfd0]">Hourly wage override ($) · optional<input className="mt-1.5 w-full rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-3 text-[#f4eaf7]" type="text" inputMode="decimal" value={wageOverride} disabled={controlsDisabled || startRequest.current !== null} onChange={(event) => setWageOverride(event.target.value)} placeholder={centsInput(profiles.find((profile) => profile.id === selectedProfileId)?.hourly_wage_cents ?? null) || '18.50'} /></label>
+          </div>
+          <button type="button" className={`${primaryButton} relative mt-6 w-full sm:w-auto`} disabled={controlsDisabled || Boolean(profileError)} onClick={start}>{busy === 'start' ? 'Saving…' : startRequest.current ? 'Retry start shift' : 'Start shift'}</button>
         </div>
       </section>}
 
-      {completed ? <section className="mt-10" aria-labelledby="completed-title"><h2 id="completed-title" className="mb-4 font-serif text-3xl">Completed shift summary</h2><HistoryItem shift={completed} nowMs={nowMs} highlighted /></section> : null}
+      {completed ? <section className="mt-10" aria-labelledby="completed-title"><h2 id="completed-title" className="mb-4 font-serif text-3xl">Completed shift summary</h2><HistoryItem shift={completed} nowMs={nowMs} onChanged={() => refreshTipShift(completed.id)} highlighted /></section> : null}
       <section className="mt-12" aria-labelledby="history-title"><div className="mb-5 flex items-center justify-between gap-4"><h2 id="history-title" className="font-serif text-3xl sm:text-4xl">Shift history</h2><button type="button" className="link-button text-sm" onClick={() => void refresh().catch(() => {})}>Refresh</button></div>
-        {history.length === 0 ? <div className={`${panel} p-8 text-center text-[#c9bfd0]`}>No completed shifts yet.</div> : <div className="space-y-3">{history.map((item) => <HistoryItem key={item.id} shift={item} nowMs={nowMs} />)}</div>}
+        {history.length === 0 ? <div className={`${panel} p-8 text-center text-[#c9bfd0]`}>No completed shifts yet.</div> : <div className="space-y-3">{history.map((item) => <HistoryItem key={item.id} shift={item} nowMs={nowMs} onChanged={() => refreshTipShift(item.id)} />)}</div>}
         {historyError ? <p role="alert" className="mt-4 text-sm text-[#f3b2ca]">{historyError}</p> : null}
         {hasMore ? <button type="button" className={`${secondaryButton} mt-5 w-full`} disabled={historyBusy} onClick={() => void moreHistory()}>{historyBusy ? 'Loading…' : 'Load more shifts'}</button> : null}
       </section>

@@ -3,6 +3,7 @@ import { AuthForm, RecoveryForm } from './auth/AuthForm'
 import { AuthProvider, useAuth } from './auth/session'
 import { supabase } from './lib/supabase'
 import { ShiftLogger } from './shift/ShiftLogger'
+import { WageProfiles } from './earnings/WageProfiles'
 
 function redirectFailed() {
   const query = new URLSearchParams(window.location.search)
@@ -23,7 +24,7 @@ function Shell({ children, action }: { children: ReactNode; action?: ReactNode }
         <span className="brand-mark">velune</span>{action}
       </header>
       {children}
-      <footer className="pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-8 text-sm text-[#b6a4bd] sm:pb-10">Built for the rhythm of real life.</footer>
+      <footer className="pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-8 text-sm text-[#b6a4bd] sm:pb-10">Hey Shaudi!!</footer>
     </div>
   </main>
 }
@@ -103,9 +104,9 @@ function AppContent() {
   }
 
   if (auth.kind === 'signedIn') {
-    return <Shell action={<button type="button" className="link-button" onClick={signOut} disabled={signOutPending}>{signOutPending ? 'Signing out…' : 'Sign out'}</button>}>
+    return <Shell action={<div className="flex flex-wrap items-center gap-4"><button type="button" className="link-button text-sm" onClick={() => navigate(path === '/app/profiles' ? '/app' : '/app/profiles')}>{path === '/app/profiles' ? 'Shifts' : 'Wage profiles'}</button><button type="button" className="link-button text-sm" onClick={signOut} disabled={signOutPending}>{signOutPending ? 'Signing out…' : 'Sign out'}</button></div>}>
       {signOutError ? <p role="alert" className="mt-6 text-[#f3b2ca]">{signOutError}</p> : null}
-      <ShiftLogger key={auth.user.id} userId={auth.user.id} />
+      {path === '/app/profiles' ? <WageProfiles key={auth.user.id} userId={auth.user.id} onBack={() => navigate('/app')} /> : <ShiftLogger key={auth.user.id} userId={auth.user.id} />}
     </Shell>
   }
 

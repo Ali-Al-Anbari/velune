@@ -4,10 +4,12 @@ import { ShiftLogger } from './ShiftLogger'
 import type { ShiftRecord } from './time'
 
 const api = vi.hoisted(() => ({
-  loadShiftSnapshot: vi.fn(), loadShiftPage: vi.fn(), startShift: vi.fn(),
+  loadShiftSnapshot: vi.fn(), loadShiftPage: vi.fn(), loadShift: vi.fn(), startShift: vi.fn(),
   beginBreak: vi.fn(), endBreak: vi.fn(), endShift: vi.fn(),
 }))
+const earnings = vi.hoisted(() => ({ loadWageProfiles: vi.fn() }))
 vi.mock('./api', () => api)
+vi.mock('../earnings/api', () => ({ loadWageProfiles: earnings.loadWageProfiles, createTip: vi.fn(), updateTip: vi.fn(), deleteTip: vi.fn() }))
 
 const base: ShiftRecord = {
   id: 'shift-a', user_id: 'user-a', started_at: new Date(Date.now() - 3600000).toISOString(),
@@ -20,10 +22,12 @@ beforeEach(() => {
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
   api.loadShiftSnapshot.mockResolvedValue(snapshot(null))
   api.loadShiftPage.mockResolvedValue({ shifts: [], hasMore: false })
+  api.loadShift.mockResolvedValue(base)
   api.startShift.mockResolvedValue(base)
   api.beginBreak.mockResolvedValue({})
   api.endBreak.mockResolvedValue({})
   api.endShift.mockResolvedValue(base)
+  earnings.loadWageProfiles.mockResolvedValue([])
 })
 afterEach(cleanup)
 
@@ -49,6 +53,31 @@ describe('shift logger', () => {
     api.loadShiftSnapshot.mockResolvedValue(snapshot(base))
     resolve(base)
     expect(await screen.findByRole('heading', { name: 'Current shift' })).toBeInTheDocument()
+  })
+
+  it('selects the default profile, supports another profile and an integer wage override', async () => {
+    earnings.loadWageProfiles.mockResolvedValue([
+      { id: 'day', name: 'Day Shift', hourly_wage_cents: 1850, is_default: true, is_archived: false },
+      { id: 'night', name: 'Night Shift', hourly_wage_cents: 2250, is_default: false, is_archived: false },
+    ])
+    render(<ShiftLogger userId="user-a" />)
+    const select = await screen.findByLabelText('Wage profile')
+    expect(select).toHaveValue('day')
+    fireEvent.change(select, { target: { value: 'night' } })
+    fireEvent.change(screen.getByLabelText(/Hourly wage override/), { target: { value: '24.75' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start shift' }))
+    await waitFor(() => expect(api.startShift).toHaveBeenCalledOnce())
+    expect(api.startShift.mock.calls[0]?.slice(1)).toEqual(['night', 2475])
+  })
+
+  it('shows the saved wage snapshot even after the profile changes', async () => {
+    const saved = { ...base, ended_at: new Date().toISOString(), wage_profile_id: 'day',
+      wage_profile_name_snapshot: 'Day Shift', hourly_wage_cents_snapshot: 1850,
+      hourly_wage_override_cents: null }
+    api.loadShiftSnapshot.mockResolvedValue(snapshot(null, [saved]))
+    earnings.loadWageProfiles.mockResolvedValue([{ id: 'day', name: 'Renamed Shift', hourly_wage_cents: 2500, is_default: true, is_archived: false }])
+    render(<ShiftLogger userId="user-a" />)
+    expect(await screen.findByText('Day Shift · $18.50/hour')).toBeInTheDocument()
   })
 
   it('defaults to unpaid, supports paid breaks, and resets the toggle for each break', async () => {
