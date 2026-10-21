@@ -20,6 +20,10 @@ body { margin: 0; min-width: 320px; }
 .brand-mark { font-size: clamp(2.3rem, 7vw, 3.4rem); font-weight: 400; letter-spacing: -.065em; line-height: 1; }
 .hero-title { font-weight: 400; }
 .hero-title em { color: #e9a4bf; font-style: normal; }
+.link-button { color: #e9a4bf; text-decoration: underline; text-underline-offset: .3em; cursor: pointer; }
+.link-button:hover { color: #f4c6d8; }
+.link-button:focus-visible { outline: 2px solid #f4c6d8; outline-offset: 4px; border-radius: .25rem; }
+.link-button:disabled { opacity: .6; cursor: wait; }
 
 .art-stage { isolation: isolate; filter: saturate(.9); }
 .orb-glow { position: absolute; inset: 11% 12%; border-radius: 50%; background: #9d5b88; filter: blur(5rem); opacity: .34; }
