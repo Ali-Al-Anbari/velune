@@ -12,6 +12,14 @@ export type ShiftRecord = {
   started_at: string
   ended_at: string | null
   breaks: BreakRecord[]
+  tips?: import('../earnings/api').Tip[]
+  wage_profile_id?: string | null
+  wage_profile_name_snapshot?: string | null
+  hourly_wage_cents_snapshot?: number | null
+  hourly_wage_override_cents?: number | null
+  normally_tipped_snapshot?: boolean | null
+  include_tips_in_tax_estimate_snapshot?: boolean | null
+  estimated_withholding_bps_snapshot?: number | null
 }
 
 export type ShiftTotals = {
