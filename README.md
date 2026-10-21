@@ -1,6 +1,6 @@
 # Velune
 
-A mobile-first React, TypeScript, and Vite PWA. Email/password authentication is backed by Supabase. The protected screen is still a coming-soon state; it stores no shifts or earnings.
+A mobile-first React, TypeScript, and Vite PWA. Supabase Auth protects a shift logger with paid and unpaid breaks and persistent history. Earnings features have not been implemented.
 
 ## Local setup
 
@@ -53,6 +53,30 @@ rollback;
 ```
 
 In a separate transaction, `set local role anon; select * from public.profiles;` must fail with permission denied. Attempting `UPDATE public.profiles SET id = 'USER_B_UUID'` as `authenticated` must fail because the role has no UPDATE grant on `id`. Confirm those failures are expected before rolling back. Repeat the first transaction with A and B reversed. These checks exercise database permissions and RLS independently of the frontend.
+
+## Shift logger migration
+
+Review [`supabase/migrations/20261020230000_shift_logger.sql`](supabase/migrations/20261020230000_shift_logger.sql). Apply it manually in the SQL Editor of the intended Supabase project **after** the profiles migration. Do not apply it automatically to production. The migration creates `public.shifts` and `public.breaks`, enables RLS, and grants authenticated users read access only to their own records. All writes use four authenticated RPCs: `start_shift`, `begin_break`, `end_break`, and `end_shift`. Direct table writes are denied. The RPCs use database timestamps and a per-user transaction advisory lock; unique partial indexes enforce one active shift per user and one active break per shift. Start requests and begin-break requests carry client-generated UUIDs so repeating an uncertain request returns its original row. Ending a shift closes its active break at the same timestamp.
+
+The app reads saved timestamps to calculate elapsed, paid break, unpaid break, and worked time. Paid breaks remain in worked time; unpaid breaks are subtracted. Durations use absolute instants, including across midnight and daylight saving changes. The browser displays dates and times in its local timezone. The app never queues offline writes: an unreachable save reports an error, and users can refresh state and retry. Keep the same request ID when retrying an uncertain start or break request.
+
+### Shift RLS and concurrency checks
+
+Use two confirmed test accounts in a **nonproduction** Supabase project. Obtain their UUIDs, then test each account through its own authenticated browser session or API JWT. As A, start a shift and a break. Verify A can read both, B sees zero rows in `shifts` and `breaks`, and B cannot call `begin_break`, `end_break`, or `end_shift` with A's IDs. Verify an anonymous request cannot read either table or execute the RPCs. Verify direct INSERT, UPDATE, and DELETE requests to both tables fail for an authenticated account. Repeat with A and B reversed.
+
+For a SQL Editor check, use separate rolled-back transactions for each identity, replacing the UUIDs with real confirmed users. For example, after creating A's shift through its client, run:
+
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'USER_B_UUID', true);
+select count(*) from public.shifts where user_id = 'USER_A_UUID'; -- 0
+select count(*) from public.breaks where shift_id = 'A_SHIFT_UUID'; -- 0
+select public.end_shift('A_SHIFT_UUID'); -- must fail: Shift not found
+rollback;
+```
+
+Use separate transactions for expected failures because a PostgreSQL error aborts its transaction. In two simultaneous A sessions, call `start_shift` with **different** UUIDs and verify exactly one active row exists. Do the same with `begin_break` on the same shift and different break UUIDs. Repeat each successful call with its **same** UUID and verify the row count stays one. Check that a later break cannot overlap the earlier one, and that ending during a break saves equal `ended_at` values on the shift and active break. These checks exercise the deployed database policies and concurrency; frontend unit tests alone cannot prove them.
 
 ## Checks
 
