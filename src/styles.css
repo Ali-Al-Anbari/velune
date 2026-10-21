@@ -18,6 +18,10 @@ body { margin: 0; min-width: 320px; }
 
 .brand-mark, .hero-title, footer { font-family: Georgia, "Times New Roman", serif; }
 .brand-mark { font-size: clamp(2.3rem, 7vw, 3.4rem); font-weight: 400; letter-spacing: -.065em; line-height: 1; }
+.app-header { padding-top: calc(env(safe-area-inset-top, 0px) + 1.25rem); }
+@media (min-width: 640px) { .app-header { padding-top: max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 3.5rem); } }
+.shift-details > summary::-webkit-details-marker { display: none; }
+.shift-details[open] > summary .shift-details-chevron { transform: rotate(180deg); }
 .hero-title { font-weight: 400; }
 .hero-title em { color: #e9a4bf; font-style: normal; }
 .link-button { color: #e9a4bf; text-decoration: underline; text-underline-offset: .3em; cursor: pointer; }

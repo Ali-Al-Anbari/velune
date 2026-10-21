@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { beginBreak, endBreak, endShift, loadShift, loadShiftPage, loadShiftSnapshot, startShift } from './api'
-import { formatDuration, formatLocalDate, formatLocalTime, shiftTotals, type ShiftRecord } from './time'
+import { formatDuration, formatLocalTime, shiftTotals, type ShiftRecord } from './time'
 import { loadWageProfiles, type WageProfile } from '../earnings/api'
 import { TipsEditor } from '../earnings/TipsEditor'
 import { centsInput, formatCents, parsePositiveCents } from '../earnings/money'
@@ -9,41 +9,83 @@ const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] shadow
 const primaryButton = 'rounded-2xl bg-[#e9a4bf] px-6 py-3.5 text-base font-semibold text-[#241426] transition hover:bg-[#f2bfd2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55'
 const secondaryButton = 'rounded-2xl border border-[#b884a382] bg-[#3a2943a8] px-5 py-3.5 text-base font-medium text-[#f4eaf7] transition hover:bg-[#513550] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55'
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className={`${panel} px-4 py-4 sm:px-5`}><dt className="text-sm text-[#c9bfd0]">{label}</dt><dd className="mt-2 font-serif text-2xl text-[#f4eaf7] tabular-nums sm:text-3xl">{value}</dd></div>
+function formatCompactDuration(milliseconds: number) {
+  const minutes = Math.floor(Math.max(0, milliseconds) / 60_000)
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  if (hours === 0) return `${remainder}m`
+  return `${hours}h ${String(remainder).padStart(2, '0')}m`
 }
 
-function BreakTime({ paidMs, unpaidMs, active, id }: { paidMs: number; unpaidMs: number; active?: { isPaid: boolean; durationMs: number } | null; id: string }) {
-  const total = paidMs + unpaidMs
-  const hasBreaks = total > 0 || active != null
-  return <section aria-labelledby={id} className={`${panel} p-5 sm:p-6`}>
-    <div className="flex items-baseline justify-between gap-3">
-      <h2 id={id} className="font-serif text-xl text-[#f4eaf7]">Break Time</h2>
-      <p className="font-serif text-2xl tabular-nums text-[#f4dce9]">{formatDuration(total)}</p>
-    </div>
-    {active ? <p role="status" className="mt-2 text-sm text-[#e9a4bf]">On an {active.isPaid ? 'paid' : 'unpaid'} break · {formatDuration(active.durationMs)} so far</p> : null}
-    {hasBreaks ? <div className="mt-3 flex flex-wrap gap-2 text-xs">
-      {paidMs > 0 ? <span className="rounded-full bg-[#6a435b80] px-3 py-1.5 text-[#f4c6d9]">Paid · {formatDuration(paidMs)}</span> : null}
-      {unpaidMs > 0 ? <span className="rounded-full bg-[#493b5580] px-3 py-1.5 text-[#d8c8e2]">Unpaid · {formatDuration(unpaidMs)}</span> : null}
-    </div> : <p className="mt-2 text-sm text-[#ac9bb7]">No breaks yet</p>}
-  </section>
+function BreakDuration({ paidMs, unpaidMs }: { paidMs: number; unpaidMs: number }) {
+  return <span>Breaks <strong className="font-medium text-[#f4eaf7]">{formatCompactDuration(paidMs + unpaidMs)}</strong></span>
+}
+
+function formatHistoryDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(value))
+}
+
+function formatHistoryTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value))
+}
+
+function formatHistoryRange(startedAt: string, endedAt: string | null, startedDate: string, endedDate: string | null) {
+  if (!endedAt) return `${formatHistoryTime(startedAt)} – In progress`
+  if (endedDate !== null && startedDate !== endedDate) {
+    return `${startedDate} · ${formatHistoryTime(startedAt)} – ${endedDate} · ${formatHistoryTime(endedAt)}`
+  }
+  return `${formatHistoryTime(startedAt)} – ${formatHistoryTime(endedAt)}`
 }
 
 function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: ShiftRecord; nowMs: number; onChanged: () => Promise<void>; highlighted?: boolean }) {
   const totals = shiftTotals(shift, nowMs)
-  return <article className={`${panel} p-5 sm:p-6 ${highlighted ? 'border-[#e9a4bf99]' : ''}`}>
-    <div className="flex flex-wrap items-baseline justify-between gap-2">
-      <h3 className="font-serif text-xl text-[#f4eaf7]">{formatLocalDate(shift.started_at)}</h3>
-      {highlighted ? <span className="text-sm text-[#e9a4bf]">Just saved</span> : null}
-    </div>
-    <p className="mt-1 text-sm text-[#c9bfd0]">{formatLocalTime(shift.started_at)} – {shift.ended_at ? `${formatLocalTime(shift.ended_at)}${formatLocalDate(shift.started_at) !== formatLocalDate(shift.ended_at) ? ` · ${formatLocalDate(shift.ended_at)}` : ''}` : 'In progress'} · local time</p>
-    <p className="mt-2 text-xs text-[#c9bfd0]">{shift.wage_profile_name_snapshot ?? 'No wage profile'}{shift.hourly_wage_cents_snapshot != null ? ` · ${formatCents(shift.hourly_wage_cents_snapshot)}/hour${shift.hourly_wage_override_cents != null ? ' override' : ''}` : ''}</p>
-    <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[#9b719a30] pt-4 text-sm">
-      <div><dt className="text-[#ac9bb7]">Elapsed</dt><dd className="mt-1 tabular-nums">{formatDuration(totals.elapsedMs)}</dd></div>
-      <div><dt className="text-[#ac9bb7]">Worked</dt><dd className="mt-1 tabular-nums">{formatDuration(totals.workedMs)}</dd></div>
+  const tipsTotal = shift.tips?.reduce((sum, tip) => sum + tip.amount_cents, 0) ?? null
+  const startedDate = formatHistoryDate(shift.started_at)
+  const endedDate = shift.ended_at ? formatHistoryDate(shift.ended_at) : null
+  return <article className={`history-card ${panel} rounded-[2rem] p-5 sm:p-7 lg:p-8 ${highlighted ? 'border-[#e9a4bf99]' : ''}`}>
+    <header className="flex min-w-0 items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h3 className="font-serif text-xl leading-tight text-[#f4eaf7] sm:text-2xl lg:text-4xl">{startedDate}</h3>
+        <p className="mt-1 break-words text-sm text-[#c9bfd0] sm:text-base lg:text-xl">{formatHistoryRange(shift.started_at, shift.ended_at, startedDate, endedDate)}</p>
+      </div>
+      {shift.wage_profile_name_snapshot ? <span className="max-w-[45%] shrink-0 rounded-full border border-[#9b719a55] bg-[#3a2943a8] px-3 py-1 text-right text-xs leading-snug text-[#d8c8e2]">{shift.wage_profile_name_snapshot}</span> : null}
+    </header>
+
+    <div className="my-4 border-t border-[#9b719a40] sm:my-5 lg:my-6" />
+
+    <dl className="grid grid-cols-2">
+      <div className="min-w-0 pr-4">
+        <dt className="text-sm text-[#b9a9c4] sm:text-base lg:text-lg">Worked</dt>
+        <dd className="mt-1 font-serif text-2xl tabular-nums leading-tight text-[#f4eaf7] sm:text-3xl lg:text-5xl">{formatCompactDuration(totals.workedMs)}</dd>
+      </div>
+      <div className="min-w-0 border-l border-[#9b719a40] pl-4">
+        <dt className="text-sm text-[#b9a9c4] sm:text-base lg:text-lg">Hourly rate</dt>
+        <dd className="mt-1 font-serif text-2xl tabular-nums leading-tight text-[#f4eaf7] sm:text-3xl lg:text-5xl" aria-label={shift.hourly_wage_cents_snapshot == null ? 'Hourly rate unavailable' : undefined}>
+          {shift.hourly_wage_cents_snapshot == null ? '—' : formatCents(shift.hourly_wage_cents_snapshot)}
+        </dd>
+      </div>
     </dl>
-    <div className="mt-4"><BreakTime id={`break-time-${highlighted ? 'completed-' : ''}${shift.id}`} paidMs={totals.paidBreakMs} unpaidMs={totals.unpaidBreakMs} /></div>
-    <TipsEditor shift={shift} onChanged={onChanged} />
+
+    {tipsTotal !== null ? <div className="mt-5 space-y-2 border-t border-[#9b719a30] pt-3 text-sm lg:mt-6 lg:pt-4 lg:text-lg">
+      <div className="flex items-center justify-between gap-4 text-[#c9bfd0]"><span>Tips</span><span className="tabular-nums text-[#f4eaf7]">{formatCents(tipsTotal)}</span></div>
+    </div> : null}
+
+    <details className="shift-details mt-5 overflow-hidden rounded-2xl border border-[#9b719a50] bg-[#33243d] lg:mt-6">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-[#e8d8ec] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#f2bfd2] lg:min-h-14 lg:px-5 lg:text-base">
+        <span>Shift details</span>
+        <svg className="shift-details-chevron h-4 w-4 shrink-0 text-[#c9a8c5] transition-transform" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </summary>
+      <div className="space-y-3 border-t border-[#9b719a35] px-4 pb-4 pt-3 text-sm">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[#c9bfd0]">
+          <dt>Paid breaks</dt><dd className="text-right tabular-nums text-[#f4eaf7]">{formatCompactDuration(totals.paidBreakMs)}</dd>
+          <dt>Unpaid breaks</dt><dd className="text-right tabular-nums text-[#f4eaf7]">{formatCompactDuration(totals.unpaidBreakMs)}</dd>
+          <dt>Elapsed time</dt><dd className="text-right tabular-nums text-[#f4eaf7]">{formatCompactDuration(totals.elapsedMs)}</dd>
+        </dl>
+        <TipsEditor shift={shift} onChanged={onChanged} showTotal={false} />
+      </div>
+    </details>
+
+    {highlighted ? <p className="mt-3 text-xs text-[#ac9bb7]">Just saved</p> : null}
   </article>
 }
 
@@ -62,6 +104,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
   const [historyError, setHistoryError] = useState('')
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [paidBreak, setPaidBreak] = useState(false)
+  const [breakPanelOpen, setBreakPanelOpen] = useState(false)
   const [completedId, setCompletedId] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<WageProfile[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
@@ -177,6 +220,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
       await beginBreak(active.id, request.id, request.paid)
       breakRequest.current = null
       setPaidBreak(false)
+      setBreakPanelOpen(false)
     }, 'Break started and saved.')
   }
 
@@ -213,6 +257,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
 
   const activeBreak = active?.breaks.find((item) => !item.ended_at)
   const totals = active ? shiftTotals(active, nowMs) : null
+  const activeBreakMs = activeBreak ? Math.max(0, nowMs - Date.parse(activeBreak.started_at)) : 0
   const completed = history.find((item) => item.id === completedId)
   const controlsDisabled = Boolean(busy || loadError)
 
@@ -225,29 +270,42 @@ export function ShiftLogger({ userId }: { userId: string }) {
 
     {!initialLoading && !loadError ? <>
       {active ? <section aria-labelledby="current-shift-title">
-        <h1 id="current-shift-title" className="font-serif text-4xl tracking-tight text-[#f4eaf7] sm:text-5xl">Current shift</h1>
-        <div className={`${panel} relative mt-6 overflow-hidden p-6 sm:p-8`}>
-          <div className="pointer-events-none absolute -right-12 -top-12 h-56 w-56 rounded-full border border-[#bd83aa55] bg-[radial-gradient(circle_at_30%_70%,#8d587966,transparent_65%)]" aria-hidden="true" />
-          <p className="relative text-sm text-[#c9bfd0]">Elapsed time</p>
-          <p className="relative mt-2 font-serif text-[clamp(3.5rem,14vw,6rem)] leading-none tracking-[-0.04em] text-[#f4dce9] tabular-nums" aria-live="off">{formatDuration(totals!.elapsedMs)}</p>
-          <p className="relative mt-5 text-sm text-[#c9bfd0]">Started {formatLocalDate(active.started_at)} at {formatLocalTime(active.started_at)} · local time</p>
-          <p className="relative mt-2 text-sm text-[#f4dce9]">{active.wage_profile_name_snapshot ?? 'No wage profile'}{active.hourly_wage_cents_snapshot != null ? ` · ${formatCents(active.hourly_wage_cents_snapshot)}/hour${active.hourly_wage_override_cents != null ? ' override' : ''}` : ''}</p>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <h1 id="current-shift-title" className="font-serif text-4xl tracking-tight text-[#f4eaf7] sm:text-5xl">Current shift</h1>
+            {!activeBreak && active.wage_profile_name_snapshot ? <p className="mt-1 break-words text-sm text-[#c9bfd0]">{active.wage_profile_name_snapshot}{active.hourly_wage_cents_snapshot != null ? ` · ${formatCents(active.hourly_wage_cents_snapshot)}/hour${active.hourly_wage_override_cents != null ? ' · override' : ''}` : ''}</p> : null}
+            {!activeBreak && !active.wage_profile_name_snapshot && active.hourly_wage_cents_snapshot != null ? <p className="mt-1 text-sm text-[#c9bfd0]">{formatCents(active.hourly_wage_cents_snapshot)}/hour{active.hourly_wage_override_cents != null ? ' · override' : ''}</p> : null}
+          </div>
+          <span role="status" className={`shrink-0 rounded-full px-3 py-1 text-xs ${activeBreak ? 'bg-[#70465e] text-[#f4dce9]' : 'bg-[#35283d] text-[#c9bfd0]'}`}>{activeBreak ? 'On break' : 'Working'}</span>
+        </div>
+        <div className={`${panel} relative mt-4 overflow-hidden p-5 sm:p-7 ${activeBreak ? 'border-[#e9a4bf99] bg-[#302033dd]' : ''}`}>
+          <p className="relative text-sm font-medium text-[#d8c4df]">{activeBreak ? `${activeBreak.is_paid ? 'Paid' : 'Unpaid'} break` : 'Time worked'}</p>
+          <p aria-label={activeBreak ? 'Break elapsed time' : 'Worked time'} className={`relative mt-2 font-serif text-[clamp(3.2rem,13.5vw,6rem)] leading-none tracking-[-0.045em] tabular-nums ${activeBreak ? 'text-[#f4c6d9]' : 'text-[#f4dce9]'}`}>
+            {activeBreak ? formatDuration(activeBreakMs) : formatDuration(totals!.workedMs)}
+          </p>
+          <div className="relative mt-5 flex items-center justify-between gap-3 border-t border-[#9b719a30] pt-3 text-xs text-[#c9bfd0] sm:text-sm">
+            <span className="min-w-0 truncate">Started {formatLocalTime(active.started_at)}</span>
+            <BreakDuration paidMs={totals!.paidBreakMs} unpaidMs={totals!.unpaidBreakMs} />
+          </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <Metric label="Worked time" value={formatDuration(totals!.workedMs)} />
-          <BreakTime id="break-time-current" paidMs={totals!.paidBreakMs} unpaidMs={totals!.unpaidBreakMs} active={activeBreak ? { isPaid: activeBreak.is_paid, durationMs: Math.max(0, nowMs - Date.parse(activeBreak.started_at)) } : null} />
+          {activeBreak ? <>
+            <button type="button" className={`${secondaryButton} h-14 w-full min-w-0 px-3`} disabled={controlsDisabled} onClick={() => setConfirmEnd(true)}>End shift</button>
+            <button type="button" className={`${primaryButton} h-14 w-full min-w-0 px-3`} disabled={controlsDisabled} onClick={finishBreak}>{busy === 'endBreak' ? 'Saving…' : 'End break'}</button>
+          </> : <>
+            <button type="button" aria-expanded={breakPanelOpen} aria-controls="break-options" className={`${secondaryButton} h-14 w-full min-w-0 px-3`} disabled={controlsDisabled} onClick={() => { setBreakPanelOpen((isOpen) => !isOpen); setPaidBreak(false); setActionError('') }}>Break</button>
+            <button type="button" className={`${primaryButton} h-14 w-full min-w-0 px-3`} disabled={controlsDisabled} onClick={() => setConfirmEnd(true)}>End shift</button>
+          </>}
         </div>
-        <div className={`${panel} mt-4 p-5 sm:p-6 ${activeBreak ? 'border-[#e9a4bf88] bg-[#3a2437c9]' : ''}`}>
-          {activeBreak ? <div className="flex flex-col gap-3 sm:flex-row"><button type="button" className={secondaryButton} disabled={controlsDisabled} onClick={finishBreak}>{busy === 'endBreak' ? 'Saving…' : 'End break'}</button><button type="button" className={primaryButton} disabled={controlsDisabled} onClick={() => setConfirmEnd(true)}>End shift</button></div>
-            : <><h2 className="font-serif text-2xl">Take a break</h2><p className="mt-1 text-sm text-[#c9bfd0]">Unpaid by default. Turn on Paid break to count this time as worked.</p>
-              <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-[#9b719a45] bg-[#20172880] px-4 py-3">
-                <label htmlFor="paid-break-toggle" className="text-sm font-medium text-[#f4eaf7]">Paid break</label>
-                <button id="paid-break-toggle" type="button" role="switch" aria-checked={paidBreak} disabled={controlsDisabled} onClick={() => setPaidBreak((value) => !value)} className={`relative h-7 w-12 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55 ${paidBreak ? 'bg-[#d88eae]' : 'bg-[#58485e]'}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-[#fff5fa] shadow transition-all ${paidBreak ? 'left-6' : 'left-1'}`} /></button>
-              </div>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row"><button type="button" className={secondaryButton} disabled={controlsDisabled || (breakRequest.current !== null && breakRequest.current.paid !== paidBreak)} onClick={() => startBreak(paidBreak)}>{busy === 'break' ? 'Saving…' : breakRequest.current ? `Retry ${breakRequest.current.paid ? 'paid' : 'unpaid'} break` : 'Start break'}</button><button type="button" className={primaryButton} disabled={controlsDisabled} onClick={() => setConfirmEnd(true)}>End shift</button></div>
-            </>}
-        </div>
-        <div className={`${panel} mt-4 p-5 sm:p-6`}><TipsEditor shift={active} onChanged={() => refreshTipShift(active.id)} /></div>
+        {breakPanelOpen && !activeBreak ? <div id="break-options" role="group" aria-label="Break options" className={`${panel} mt-3 flex flex-wrap items-center justify-between gap-4 p-4`}>
+          <div><p className="text-sm font-medium">Break options</p><p className="mt-1 text-xs text-[#ac9bb7]">Unpaid by default. Paid breaks count as worked time.</p></div>
+          <div className="flex items-center gap-4">
+            <label htmlFor="paid-break-toggle" className="text-sm text-[#f4eaf7]">Paid break</label>
+            <button id="paid-break-toggle" type="button" role="switch" aria-checked={paidBreak} disabled={controlsDisabled} onClick={() => setPaidBreak((value) => !value)} className={`relative h-7 w-12 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55 ${paidBreak ? 'bg-[#d88eae]' : 'bg-[#58485e]'}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-[#fff5fa] shadow transition-all ${paidBreak ? 'left-6' : 'left-1'}`} /></button>
+          </div>
+          <div className="flex w-full justify-end gap-3"><button type="button" className="link-button px-3 py-2 text-sm" disabled={controlsDisabled} onClick={() => { setBreakPanelOpen(false); setPaidBreak(false) }}>Cancel</button><button type="button" className={secondaryButton} disabled={controlsDisabled || (breakRequest.current !== null && breakRequest.current.paid !== paidBreak)} onClick={() => startBreak(paidBreak)}>{busy === 'break' ? 'Saving…' : breakRequest.current ? `Retry ${breakRequest.current.paid ? 'paid' : 'unpaid'} break` : 'Start break'}</button></div>
+        </div> : null}
+        <TipsEditor shift={active} onChanged={() => refreshTipShift(active.id)} />
       </section> : <section aria-labelledby="ready-title"><h1 id="ready-title" className="font-serif text-4xl tracking-tight sm:text-5xl">Ready when you are.</h1>
         <div className={`${panel} relative mt-6 overflow-hidden p-7 sm:p-9`}><div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border border-[#bd83aa55] bg-[radial-gradient(circle_at_30%_70%,#8d587966,transparent_65%)]" aria-hidden="true" />
           <p className="relative font-serif text-2xl text-[#f4dce9]">Start a shift to begin tracking your time.</p>

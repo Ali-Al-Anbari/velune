@@ -20,7 +20,7 @@ function Orb() {
 function Shell({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return <main className="landing-shell min-h-svh overflow-hidden text-[#f4eaf7]">
     <div className="landing-inner mx-auto flex min-h-svh w-full max-w-6xl flex-col px-7 sm:px-12 lg:px-16">
-      <header className="flex items-center justify-between gap-4 pt-[calc(env(safe-area-inset-top)+2.2rem)] sm:pt-14">
+      <header className="app-header flex flex-wrap items-center justify-between gap-3">
         <span className="brand-mark">velune</span>{action}
       </header>
       {children}
