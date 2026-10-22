@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { beginBreak, endBreak, endShift, loadShift, loadShiftPage, loadShiftSnapshot, startShift } from './api'
 import { formatDuration, formatLocalTime, shiftTotals, type ShiftRecord } from './time'
 import { loadWageProfiles, type WageProfile } from '../earnings/api'
@@ -6,6 +6,8 @@ import { TipsEditor } from '../earnings/TipsEditor'
 import { TipTaxWithheldEditor } from '../earnings/TipTaxWithheldEditor'
 import { calculateShiftEarnings } from '../earnings/shiftEarnings'
 import { centsInput, formatCents, parsePositiveCents } from '../earnings/money'
+
+const ManualShiftEditor = lazy(() => import('./ManualShiftEditor').then((module) => ({ default: module.ManualShiftEditor })))
 
 const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] shadow-xl shadow-black/10 backdrop-blur-xl'
 const primaryButton = 'rounded-2xl bg-[#e9a4bf] px-6 py-3.5 text-base font-semibold text-[#241426] transition hover:bg-[#f2bfd2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55'
@@ -47,7 +49,7 @@ function formatHistoryRange(startedAt: string, endedAt: string | null, startedDa
   return `${formatHistoryTime(startedAt)} – ${formatHistoryTime(endedAt)}`
 }
 
-function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: ShiftRecord; nowMs: number; onChanged: () => Promise<void>; highlighted?: boolean }) {
+function HistoryItem({ shift, nowMs, onChanged, onEdit, highlighted = false }: { shift: ShiftRecord; nowMs: number; onChanged: () => Promise<void>; onEdit: () => void; highlighted?: boolean }) {
   const totals = shiftTotals(shift, nowMs)
   const earnings = calculateShiftEarnings(shift, nowMs)
   const breakSummary = shift.breaks.length > 0 ? formatBreakSummary(totals.paidBreakMs, totals.unpaidBreakMs) : null
@@ -97,14 +99,18 @@ function HistoryItem({ shift, nowMs, onChanged, highlighted = false }: { shift: 
       <p className="mt-1 text-xs text-[#ac9bb7]">Hourly-wage taxes and other deductions are not included.</p>
     </> : earnings.tipTaxWithheldCents !== null ? <div className="flex items-center justify-between gap-4 text-sm text-[#c9bfd0]"><span>Tip tax withheld</span><span className="tabular-nums text-[#f4eaf7]">−{formatCents(earnings.tipTaxWithheldCents)}</span></div> : null}
 
-    <details className="shift-details mt-5 overflow-hidden rounded-2xl border border-[#9b719a50] bg-[#33243d] lg:mt-6">
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#9b719a30] pt-3">
+      {shift.ended_at ? <button type="button" className="link-button text-sm" onClick={onEdit}>Edit shift</button> : null}
+      <TipsEditor shift={shift} onChanged={onChanged} showTotal={false} />
+    </div>
+
+    <details className="shift-details mt-3 overflow-hidden rounded-2xl border border-[#9b719a50] bg-[#33243d] lg:mt-4">
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-[#e8d8ec] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[#f2bfd2] lg:min-h-14 lg:px-5 lg:text-base">
         <span>Shift details</span>
         <svg className="shift-details-chevron h-4 w-4 shrink-0 text-[#c9a8c5] transition-transform" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </summary>
       <div className="space-y-3 border-t border-[#9b719a35] px-4 pb-4 pt-3 text-sm">
         <TipTaxWithheldEditor shift={shift} onChanged={onChanged} />
-        <TipsEditor shift={shift} onChanged={onChanged} showTotal={false} />
       </div>
     </details>
 
@@ -131,6 +137,7 @@ export function ShiftLogger({ userId }: { userId: string }) {
   const [completedId, setCompletedId] = useState<string | null>(null)
   const [profiles, setProfiles] = useState<WageProfile[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
+  const [manualEditor, setManualEditor] = useState<{ shift: ShiftRecord | null } | null>(null)
   const [wageOverride, setWageOverride] = useState('')
   const profileChoiceTouched = useRef(false)
   const startRequest = useRef<{ id: string; profileId: string | null; overrideCents: number | null } | null>(null)
@@ -278,6 +285,16 @@ export function ShiftLogger({ userId }: { userId: string }) {
     }
   }
 
+  async function manualShiftSaved() {
+    setManualEditor(null)
+    try {
+      await refresh()
+      setNotice('Shift saved.')
+    } catch {
+      setNotice('Shift saved. Refresh your shifts to load the latest details.')
+    }
+  }
+
   const activeBreak = active?.breaks.find((item) => !item.ended_at)
   const totals = active ? shiftTotals(active, nowMs) : null
   const activeBreakMs = activeBreak ? Math.max(0, nowMs - Date.parse(activeBreak.started_at)) : 0
@@ -341,13 +358,15 @@ export function ShiftLogger({ userId }: { userId: string }) {
         </div>
       </section>}
 
-      {completed ? <section className="mt-10" aria-labelledby="completed-title"><h2 id="completed-title" className="mb-4 font-serif text-3xl">Completed shift summary</h2><HistoryItem shift={completed} nowMs={nowMs} onChanged={() => refreshTipShift(completed.id)} highlighted /></section> : null}
-      <section className="mt-12" aria-labelledby="history-title"><div className="mb-5 flex items-center justify-between gap-4"><h2 id="history-title" className="font-serif text-3xl sm:text-4xl">Shift history</h2><button type="button" className="link-button text-sm" onClick={() => void refresh().catch(() => {})}>Refresh</button></div>
-        {history.length === 0 ? <div className={`${panel} p-8 text-center text-[#c9bfd0]`}>No completed shifts yet.</div> : <div className="space-y-3">{history.map((item) => <HistoryItem key={item.id} shift={item} nowMs={nowMs} onChanged={() => refreshTipShift(item.id)} />)}</div>}
+      {completed ? <section className="mt-10" aria-labelledby="completed-title"><h2 id="completed-title" className="mb-4 font-serif text-3xl">Completed shift summary</h2><HistoryItem shift={completed} nowMs={nowMs} onChanged={() => refreshTipShift(completed.id)} onEdit={() => setManualEditor({ shift: completed })} highlighted /></section> : null}
+      <section className="mt-12" aria-labelledby="history-title"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h2 id="history-title" className="font-serif text-3xl sm:text-4xl">Shift history</h2><div className="flex items-center gap-4"><button type="button" className="link-button text-sm" onClick={() => void refresh().catch(() => {})}>Refresh</button><button type="button" className="rounded-xl bg-[#e9a4bf] px-4 py-2.5 text-sm font-semibold text-[#241426] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55" disabled={Boolean(profileError)} onClick={() => setManualEditor({ shift: null })}>Add shift</button></div></div>
+        {history.length === 0 ? <div className={`${panel} p-8 text-center text-[#c9bfd0]`}>No completed shifts yet.</div> : <div className="space-y-3">{history.map((item) => <HistoryItem key={item.id} shift={item} nowMs={nowMs} onChanged={() => refreshTipShift(item.id)} onEdit={() => setManualEditor({ shift: item })} />)}</div>}
         {historyError ? <p role="alert" className="mt-4 text-sm text-[#f3b2ca]">{historyError}</p> : null}
         {hasMore ? <button type="button" className={`${secondaryButton} mt-5 w-full`} disabled={historyBusy} onClick={() => void moreHistory()}>{historyBusy ? 'Loading…' : 'Load more shifts'}</button> : null}
       </section>
     </> : null}
+
+    {manualEditor ? <Suspense fallback={<p role="status" className="fixed inset-x-4 bottom-4 z-50 rounded-xl bg-[#33243d] p-4 text-sm text-[#f4eaf7]">Opening shift editor…</p>}><ManualShiftEditor shift={manualEditor.shift} profiles={profiles} onCancel={() => setManualEditor(null)} onSaved={manualShiftSaved} /></Suspense> : null}
 
     {confirmEnd && active ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#090711cc] px-6" role="presentation">
       <section role="dialog" aria-modal="true" aria-labelledby="confirm-title" className={`${panel} w-full max-w-md p-6 sm:p-8`}>

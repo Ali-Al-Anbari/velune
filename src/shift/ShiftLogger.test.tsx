@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ShiftLogger } from './ShiftLogger'
-import type { ShiftRecord } from './time'
+import { localDateTimeInput, type ShiftRecord } from './time'
 
 const api = vi.hoisted(() => ({
   loadShiftSnapshot: vi.fn(), loadShiftPage: vi.fn(), loadShift: vi.fn(), startShift: vi.fn(),
   beginBreak: vi.fn(), endBreak: vi.fn(), endShift: vi.fn(),
+  createManualShift: vi.fn(), updateCompletedShift: vi.fn(),
 }))
 const earnings = vi.hoisted(() => ({ loadWageProfiles: vi.fn() }))
 vi.mock('./api', () => api)
@@ -27,6 +28,8 @@ beforeEach(() => {
   api.beginBreak.mockResolvedValue({})
   api.endBreak.mockResolvedValue({})
   api.endShift.mockResolvedValue(base)
+  api.createManualShift.mockResolvedValue(base)
+  api.updateCompletedShift.mockResolvedValue(base)
   earnings.loadWageProfiles.mockResolvedValue([])
 })
 afterEach(cleanup)
@@ -105,6 +108,10 @@ describe('shift logger', () => {
     const summary = within(card).getByText('Shift details').closest('summary')!
     const details = summary.parentElement as HTMLDetailsElement
     expect(details).not.toHaveAttribute('open')
+    const editShift = within(card).getByRole('button', { name: 'Edit shift' })
+    expect(editShift).toBeVisible()
+    expect(editShift.closest('details')).toBeNull()
+    expect(within(card).getByRole('button', { name: 'Manage tips' })).toBeVisible()
     fireEvent.click(summary)
     expect(details).toHaveProperty('open', true)
     expect(within(details).queryByText('Paid breaks')).not.toBeInTheDocument()
@@ -112,7 +119,7 @@ describe('shift logger', () => {
     expect(within(details).queryByLabelText('Tip tax withheld ($)')).not.toBeInTheDocument()
     fireEvent.click(within(details).getByRole('button', { name: 'Edit tip tax withholding' }))
     expect(within(details).getByLabelText('Tip tax withheld ($)')).toHaveValue('3.50')
-    expect(within(details).getByRole('button', { name: 'Manage tips' })).toBeInTheDocument()
+    expect(within(details).queryByRole('button', { name: 'Manage tips' })).not.toBeInTheDocument()
   })
 
   it.each([
@@ -145,6 +152,41 @@ describe('shift logger', () => {
     const card = await screen.findByRole('article')
     expect(card).toHaveTextContent('Tip tax withheld−$0.00')
     expect(card).toHaveTextContent('After tip withholding')
+  })
+
+  it('opens Add shift from history and recalculates wages after editing a completed shift', async () => {
+    const oldShift = { ...base, started_at: '2024-06-05T09:00:00Z', ended_at: '2024-06-05T17:00:00Z',
+      wage_profile_id: 'profile-a', wage_profile_name_snapshot: 'Day Shift', hourly_wage_cents_snapshot: 2000,
+      hourly_wage_override_cents: null, manual_edit_version: 0,
+      breaks: [{ id: 'break-a', shift_id: base.id, started_at: '2024-06-05T12:00:00Z', ended_at: '2024-06-05T12:30:00Z', is_paid: false }], tips: [] }
+    const changedShift = { ...oldShift, started_at: '2024-06-05T10:00:00Z', manual_edit_version: 1 }
+    api.loadShiftSnapshot.mockResolvedValueOnce(snapshot(null, [oldShift])).mockResolvedValue(snapshot(null, [changedShift]))
+    api.loadShift.mockResolvedValue(changedShift)
+    earnings.loadWageProfiles.mockResolvedValue([{ id: 'profile-a', user_id: 'user-a', name: 'Day Shift', hourly_wage_cents: 2500,
+      normally_tipped: false, include_tips_in_tax_estimate: false, estimated_withholding_bps: null, is_default: true,
+      is_archived: false, created_at: '', updated_at: '' }])
+    render(<ShiftLogger userId="user-a" />)
+    expect(await screen.findAllByText('$150.00')).toHaveLength(3)
+    fireEvent.click(screen.getByRole('button', { name: 'Add shift' }))
+    expect(await screen.findByRole('dialog', { name: 'Add shift' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close shift editor' }))
+    const card = screen.getByRole('article')
+    const editButton = within(card).getByRole('button', { name: 'Edit shift' })
+    expect(editButton).toBeVisible()
+    expect(editButton.closest('details')).toBeNull()
+    fireEvent.click(editButton)
+    const editor = await screen.findByRole('dialog', { name: 'Edit shift' })
+    expect(within(editor).getByLabelText('Wage profile')).toHaveValue('profile-a')
+    expect(within(editor).getByLabelText(/Hourly wage override/)).toHaveValue('')
+    const breakGroup = within(editor).getByRole('group', { name: 'Break 1' })
+    expect(within(breakGroup).getByLabelText('Start')).toHaveValue(localDateTimeInput(oldShift.breaks[0]!.started_at))
+    fireEvent.click(within(editor).getByRole('button', { name: 'Close shift editor' }))
+    fireEvent.click(editButton)
+    const reopenedEditor = await screen.findByRole('dialog', { name: 'Edit shift' })
+    fireEvent.change(within(reopenedEditor).getByLabelText('Start date and time'), { target: { value: localDateTimeInput('2024-06-05T10:00:00Z') } })
+    fireEvent.click(within(reopenedEditor).getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(api.updateCompletedShift).toHaveBeenCalledOnce())
+    expect(await screen.findAllByText('$130.00')).toHaveLength(3)
   })
 
   it('defaults to unpaid, supports paid breaks, and resets the toggle for each break', async () => {
