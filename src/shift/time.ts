@@ -22,6 +22,34 @@ export type ShiftRecord = {
   /** Legacy profile snapshots retained for compatibility; no tip tax estimate uses these. */
   include_tips_in_tax_estimate_snapshot?: boolean | null
   estimated_withholding_bps_snapshot?: number | null
+  manual_edit_version?: number
+}
+
+const manualShiftMaximumMs = 24 * 60 * 60 * 1000
+
+export function localDateTimeInput(timestamp: string) {
+  const date = new Date(timestamp)
+  if (!Number.isFinite(date.getTime())) throw new Error('A saved timestamp could not be read.')
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+export function parseLocalDateTimeInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) throw new Error('Enter a valid local date and time.')
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime()) || localDateTimeInput(date.toISOString()) !== value) {
+    throw new Error('That local time does not exist because of a clock change. Choose another time.')
+  }
+  return date.toISOString()
+}
+
+export function validateManualShiftRange(startedAt: string, endedAt: string, nowMs = Date.now()) {
+  const start = Date.parse(startedAt)
+  const end = Date.parse(endedAt)
+  if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error('Enter valid start and end times.')
+  if (start >= end) throw new Error('Shift start must be earlier than shift end.')
+  if (end > nowMs) throw new Error('Manual shifts must end in the past.')
+  if (end - start > manualShiftMaximumMs) throw new Error('A shift cannot be longer than 24 hours.')
 }
 
 export type ShiftTotals = {
