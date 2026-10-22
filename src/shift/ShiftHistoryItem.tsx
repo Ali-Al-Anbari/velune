@@ -5,6 +5,7 @@ import { formatCents } from '../earnings/money'
 import { EditMoney } from '../earnings/EditMoney'
 
 const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] shadow-xl shadow-black/10 backdrop-blur-xl'
+const compactAction = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium no-underline transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2]'
 
 function compactDuration(milliseconds: number) {
   const minutes = Math.floor(Math.max(0, milliseconds) / 60_000)
@@ -63,7 +64,7 @@ export function ShiftHistoryItem({ shift, nowMs, onChanged, onEdit, highlighted 
       <p className="mt-1 text-xs text-[#ac9bb7]">Hourly-wage taxes and other deductions are not included.</p>
     </> : earnings.tipTaxWithheldCents !== null ? <div className="flex items-center justify-between gap-4 text-sm text-[#c9bfd0]"><span>Tip tax withheld</span><span className="tabular-nums text-[#f4eaf7]">−{formatCents(earnings.tipTaxWithheldCents)}</span></div> : null}
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#9b719a30] pt-3">
-      {shift.ended_at ? <button type="button" className="link-button text-sm" onClick={onEdit}>Edit shift</button> : null}
+      {shift.ended_at ? <button type="button" className={`${compactAction} border-[#9b719a66] bg-[#30243a66] text-[#c9bfd0] hover:bg-[#45334f]`} onClick={onEdit}><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="m12.8 3.7 3.5 3.5M4 16l.7-3.2L13.7 3.8a1.8 1.8 0 0 1 2.5 0l.1.1a1.8 1.8 0 0 1 0 2.5l-9 9L4 16Z" /><path d="M10.5 5.5 14 9" /></svg>Edit shift</button> : null}
       <EditMoney shift={shift} onChanged={onChanged} />
     </div>
     {highlighted ? <p className="mt-3 text-xs text-[#ac9bb7]">Just saved</p> : null}

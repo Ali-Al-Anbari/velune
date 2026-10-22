@@ -142,9 +142,9 @@ function AppContent() {
       <button type="button" className="link-button text-xs sm:text-sm" onClick={signOut} disabled={signOutPending}>{signOutPending ? 'Signing out…' : 'Sign out'}</button>
     </div>}>
       {signOutError ? <p role="alert" className="mt-6 text-[#f3b2ca]">{signOutError}</p> : null}
-      {path === '/app/profiles' ? <WageProfiles key={auth.user.id} userId={auth.user.id} onBack={() => navigate('/app')} />
+      {path === '/app/profiles' ? <WageProfiles key={auth.user.id} userId={auth.user.id} />
         : path === '/app/reports' ? <EarningsReports key={auth.user.id} userId={auth.user.id} />
-          : path === '/app/history' ? <ShiftHistory key={auth.user.id} userId={auth.user.id} onBack={() => navigate('/app')} />
+          : path === '/app/history' ? <ShiftHistory key={auth.user.id} userId={auth.user.id} />
             : <ShiftLogger key={auth.user.id} userId={auth.user.id} onViewAll={() => navigate('/app/history')} />}
     </Shell>
   }

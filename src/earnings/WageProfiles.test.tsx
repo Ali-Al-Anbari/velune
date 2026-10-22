@@ -28,7 +28,8 @@ describe('wage profiles screen', () => {
     api.loadWageProfiles.mockImplementation(async () => savedProfiles)
     api.createWageProfile.mockImplementation(async () => { savedProfiles = [profile]; return profile })
     api.setDefaultWageProfile.mockImplementation(async () => { savedProfiles = [{ ...profile, is_default: true }] })
-    render(<WageProfiles userId="user-a" onBack={() => {}} />)
+    render(<WageProfiles userId="user-a" />)
+    expect(screen.queryByRole('button', { name: /back to shifts/i })).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: 'New profile' }))
     fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'Day Shift' } })
     fireEvent.change(screen.getByLabelText('Hourly wage ($)'), { target: { value: '18.50' } })
@@ -48,7 +49,7 @@ describe('wage profiles screen', () => {
     })
     api.setDefaultWageProfile.mockImplementation(async () => { savedProfiles = [{ ...savedProfiles[0]!, is_default: true }] })
     api.archiveWageProfile.mockImplementation(async () => { savedProfiles = [{ ...savedProfiles[0]!, is_default: false, is_archived: true }] })
-    render(<WageProfiles userId="user-a" onBack={() => {}} />)
+    render(<WageProfiles userId="user-a" />)
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     fireEvent.change(screen.getByLabelText('Hourly wage ($)'), { target: { value: '21.25' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }))
@@ -63,7 +64,7 @@ describe('wage profiles screen', () => {
   })
 
   it('validates profile name and wage before saving', async () => {
-    render(<WageProfiles userId="user-a" onBack={() => {}} />)
+    render(<WageProfiles userId="user-a" />)
     fireEvent.click(await screen.findByRole('button', { name: 'New profile' }))
     fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: '  ' } })
     fireEvent.change(screen.getByLabelText('Hourly wage ($)'), { target: { value: '18.50' } })
@@ -78,7 +79,7 @@ describe('wage profiles screen', () => {
 
   it('omits profile level tax controls from create and edit forms and profile cards', async () => {
     api.loadWageProfiles.mockResolvedValue([profile])
-    render(<WageProfiles userId="user-a" onBack={() => {}} />)
+    render(<WageProfiles userId="user-a" />)
     fireEvent.click(await screen.findByRole('button', { name: 'New profile' }))
     expect(screen.queryByText(/Include tips in future tax estimates/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/Estimated withholding/i)).not.toBeInTheDocument()

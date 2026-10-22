@@ -6,7 +6,7 @@ const panel = 'rounded-[1.75rem] border border-[#9b719a45] bg-[#261b2dbb] p-5 sh
 const button = 'rounded-2xl bg-[#e9a4bf] px-5 py-3 text-sm font-semibold text-[#241426] transition hover:bg-[#f2bfd2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55'
 const field = 'mt-1.5 w-full rounded-xl border border-[#9b719a70] bg-[#1d1725] px-4 py-3 text-[#f4eaf7] outline-none focus:border-[#e9a4bf]'
 
-export function WageProfiles({ userId, onBack }: { userId: string; onBack: () => void }) {
+export function WageProfiles({ userId }: { userId: string }) {
   const [profiles, setProfiles] = useState<WageProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -83,8 +83,7 @@ export function WageProfiles({ userId, onBack }: { userId: string; onBack: () =>
   const archived = profiles.filter((profile) => profile.is_archived)
 
   return <div className="relative z-10 w-full py-12 sm:py-16">
-    <button type="button" className="link-button text-sm" onClick={onBack}>← Back to shifts</button>
-    <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
+    <div className="flex flex-wrap items-end justify-between gap-4">
       <div><h1 className="font-serif text-4xl tracking-tight sm:text-5xl">Wage Profiles</h1><p className="mt-2 text-sm text-[#c9bfd0]">Save the pay settings you use for each kind of shift.</p></div>
       <button type="button" className={button} disabled={busy} onClick={openCreate}>New profile</button>
     </div>

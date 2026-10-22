@@ -9,7 +9,7 @@ const panel = 'rounded-[1.5rem] border border-[#9b719a45] bg-[#261b2dbb] p-4 sha
 const control = 'min-h-11 w-full rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-2 text-sm text-[#f4eaf7] outline-none focus:border-[#e9a4bf] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2]'
 const button = 'min-h-11 rounded-xl border border-[#b884a382] bg-[#3a2943a8] px-4 py-2.5 text-sm text-[#f4eaf7] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55'
 
-export function ShiftHistory({ userId, onBack }: { userId: string; onBack: () => void }) {
+export function ShiftHistory({ userId }: { userId: string }) {
   const [draft, setDraft] = useState<ShiftHistoryFilters>({ sort: 'newest' })
   const [applied, setApplied] = useState<ShiftHistoryFilters>({ sort: 'newest' })
   const [shifts, setShifts] = useState<ShiftRecord[]>([])
@@ -90,7 +90,7 @@ export function ShiftHistory({ userId, onBack }: { userId: string; onBack: () =>
 
   return <section className="relative z-10 w-full py-8 sm:py-10" aria-labelledby="history-page-title">
     <header className="mb-5 flex flex-wrap items-end justify-between gap-4">
-      <div><button type="button" className="link-button mb-2 text-sm" onClick={onBack}>← Shifts</button><h1 id="history-page-title" className="font-serif text-3xl tracking-tight sm:text-4xl">Shift history</h1><p className="mt-1 text-sm text-[#b9a9c4]">Search all completed shifts. Date filters use the local shift start date.</p></div>
+      <div><h1 id="history-page-title" className="font-serif text-3xl tracking-tight sm:text-4xl">Shift history</h1><p className="mt-1 text-sm text-[#b9a9c4]">Search all completed shifts. Date filters use the local shift start date.</p></div>
       <button type="button" className="min-h-11 rounded-xl bg-[#e9a4bf] px-4 py-2.5 text-sm font-semibold text-[#241426] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2]" onClick={() => setAddOpen(true)}>Add shift</button>
     </header>
 
