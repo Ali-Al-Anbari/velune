@@ -13,6 +13,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // ExcelJS is large and is loaded only after the user requests an Excel export.
+        globIgnores: ['**/xlsxExport-*.js'],
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
       },
