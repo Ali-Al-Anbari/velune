@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
 const earnings = vi.hoisted(() => ({ loadWageProfiles: vi.fn() }))
 vi.mock('./api', () => api)
 vi.mock('../earnings/api', () => ({ loadWageProfiles: earnings.loadWageProfiles, createTip: vi.fn(), updateTip: vi.fn(), deleteTip: vi.fn() }))
+vi.mock('./ShiftAttachments', () => ({ ShiftAttachments: () => null }))
 
 const base: ShiftRecord = {
   id: 'shift-a', user_id: 'user-a', started_at: new Date(Date.now() - 3600000).toISOString(),

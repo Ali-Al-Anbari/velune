@@ -8,6 +8,7 @@ const shiftApi = vi.hoisted(() => ({ loadShiftHistoryPage: vi.fn(), loadShift: v
 const earningsApi = vi.hoisted(() => ({ loadWageProfiles: vi.fn(), createTip: vi.fn(), updateTip: vi.fn(), deleteTip: vi.fn(), setShiftTipTaxWithheld: vi.fn() }))
 vi.mock('./api', () => ({ ...shiftApi, beginBreak: vi.fn(), endBreak: vi.fn(), endShift: vi.fn(), startShift: vi.fn(), loadShiftPage: vi.fn() }))
 vi.mock('../earnings/api', () => earningsApi)
+vi.mock('./ShiftAttachments', () => ({ ShiftAttachments: () => null }))
 
 const record = (id: string, day: number): ShiftRecord => ({
   id, user_id: 'user-a', started_at: `2026-10-${String(day).padStart(2, '0')}T09:00:00Z`, ended_at: `2026-10-${String(day).padStart(2, '0')}T17:00:00Z`,

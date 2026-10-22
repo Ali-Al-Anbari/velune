@@ -14,7 +14,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // ExcelJS is large and is loaded only after the user requests an Excel export.
-        globIgnores: ['**/xlsxExport-*.js'],
+        // Large feature-only libraries are fetched on demand instead of blocking the PWA install.
+        globIgnores: ['**/xlsxExport-*.js', '**/heic-to-*.js'],
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
       },
