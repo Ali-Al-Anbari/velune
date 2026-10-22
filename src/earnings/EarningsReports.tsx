@@ -8,6 +8,7 @@ import type { ShiftRecord } from '../shift/time'
 const card = 'rounded-[1.5rem] border border-[#9b719a45] bg-[#261b2dbb] p-4 shadow-xl shadow-black/10 backdrop-blur-xl sm:p-5'
 const control = 'rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-2.5 text-sm text-[#f4eaf7] outline-none focus:border-[#e9a4bf] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2]'
 const secondaryButton = 'rounded-xl border border-[#b884a382] bg-[#3a2943a8] px-4 py-2.5 text-sm text-[#f4eaf7] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-45'
+const downloadButton = 'rounded-xl bg-[#76527f] px-4 py-2.5 text-sm font-medium text-[#fff3fa] shadow-lg shadow-black/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-45'
 
 function compactDuration(milliseconds: number) {
   const minutes = Math.floor(milliseconds / 60_000)
@@ -37,7 +38,13 @@ export function EarningsReports({ userId }: { userId: string }) {
   const [error, setError] = useState('')
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [reloadKey, setReloadKey] = useState(0)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportFormat, setExportFormat] = useState<'xlsx' | 'csv'>('xlsx')
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
+  const [exportFile, setExportFile] = useState<{ url: string; name: string } | null>(null)
   const requestId = useRef(0)
+  const exportUrlRef = useRef<string | null>(null)
   const periodStartDate = period.startDate
   const periodEndDate = period.endDate
   const report = useMemo(() => calculateEarningsReport(shifts, period, nowMs), [shifts, period, nowMs])
@@ -60,6 +67,61 @@ export function EarningsReports({ userId }: { userId: string }) {
     })
     return () => { requestId.current += 1 }
   }, [userId, periodStartDate, periodEndDate, reloadKey])
+
+  useEffect(() => () => {
+    if (exportUrlRef.current) URL.revokeObjectURL(exportUrlRef.current)
+  }, [])
+
+  useEffect(() => {
+    setExportError('')
+    setExportFile(null)
+    if (exportUrlRef.current) {
+      URL.revokeObjectURL(exportUrlRef.current)
+      exportUrlRef.current = null
+    }
+  }, [periodStartDate, periodEndDate])
+
+  async function generateExport() {
+    if (loading || error || exporting) return
+    setExporting(true)
+    setExportError('')
+    setExportFile(null)
+    if (exportUrlRef.current) {
+      URL.revokeObjectURL(exportUrlRef.current)
+      exportUrlRef.current = null
+    }
+    try {
+      const safePeriod = `${period.startDate}-to-${period.endDate}`
+      let blob: Blob
+      let extension: string
+      if (exportFormat === 'csv') {
+        const { createEarningsCsv } = await import('./exportData')
+        blob = new Blob([createEarningsCsv(report)], { type: 'text/csv;charset=utf-8' })
+        extension = 'csv'
+      } else {
+        const { createEarningsWorkbook } = await import('./xlsxExport')
+        const workbook = createEarningsWorkbook(report)
+        const buffer = await workbook.xlsx.writeBuffer()
+        blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+        extension = 'xlsx'
+      }
+      const url = URL.createObjectURL(blob)
+      const name = `velune-earnings-${safePeriod}.${extension}`
+      exportUrlRef.current = url
+      setExportFile({ url, name })
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = name
+      anchor.style.display = 'none'
+      document.body.append(anchor)
+      if ('download' in anchor) anchor.click()
+      anchor.remove()
+    } catch {
+      setExportError('The export could not be created. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   function selectMode(nextMode: PeriodMode) {
     setMode(nextMode)
@@ -111,7 +173,32 @@ export function EarningsReports({ userId }: { userId: string }) {
   return <section className="relative z-10 w-full py-8 sm:py-10" aria-labelledby="earnings-title">
     <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div><h1 id="earnings-title" className="font-serif text-3xl tracking-tight sm:text-4xl">Earnings reports</h1><p className="mt-1 text-sm text-[#b9a9c4]">Periods follow your device’s local timezone.</p></div>
+      <button type="button" className={secondaryButton} aria-expanded={exportOpen} aria-controls="earnings-export-panel" onClick={() => setExportOpen((open) => !open)}>
+        <span aria-hidden="true">↓</span> Export
+      </button>
     </header>
+
+    {exportOpen ? <section id="earnings-export-panel" className={`${card} mb-5`} aria-labelledby="export-title">
+      <div className="flex items-start justify-between gap-3">
+        <div><h2 id="export-title" className="font-serif text-xl text-[#f4eaf7]">Export earnings</h2><p className="mt-1 text-sm text-[#c9bfd0]">{formatReportPeriod(period)}</p></div>
+        <button type="button" className="rounded-lg px-2 py-1 text-sm text-[#c9bfd0] focus-visible:outline-2 focus-visible:outline-[#f2bfd2]" aria-label="Close export options" onClick={() => setExportOpen(false)}>✕</button>
+      </div>
+      <p className="mt-3 max-w-2xl text-xs leading-relaxed text-[#b9a9c4]">Includes period-allocated worked hours and wages, plus tips and recorded tip withholding on each shift’s local start date. Missing wage snapshots stay blank and are labeled as incomplete.</p>
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <label className="min-w-40 flex-1 text-xs text-[#c9bfd0]">File format
+          <select className={`${control} mt-1.5 w-full`} value={exportFormat} onChange={(event) => setExportFormat(event.target.value as 'xlsx' | 'csv')}>
+            <option value="xlsx">Excel workbook (.xlsx)</option><option value="csv">CSV (.csv)</option>
+          </select>
+        </label>
+        <button type="button" className={downloadButton} disabled={loading || Boolean(error) || exporting} onClick={() => void generateExport()}>
+          {exporting ? 'Preparing…' : `Export ${exportFormat === 'xlsx' ? 'Excel' : 'CSV'}`}
+        </button>
+      </div>
+      {loading ? <p className="mt-3 text-xs text-[#b9a9c4]" role="status">Waiting for this period’s report data…</p> : null}
+      {exporting ? <p className="mt-3 text-xs text-[#c9bfd0]" role="status">Preparing your file…</p> : null}
+      {exportError ? <p className="mt-3 text-xs text-[#ffc7d9]" role="alert">{exportError}</p> : null}
+      {exportFile ? <p className="mt-3 text-xs text-[#c9bfd0]" role="status">If your browser did not save the file automatically, <a className="rounded-md text-[#f2bfd2] underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-[#f2bfd2]" href={exportFile.url} download={exportFile.name}>download it here</a>. On iPhone, use the share menu to save the file to Files.</p> : null}
+    </section> : null}
 
     <div className={`${card} mb-5`}>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Report period type">

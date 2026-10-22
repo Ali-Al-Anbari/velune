@@ -19,6 +19,22 @@ export type WageProfileReport = {
   earningsAfterTipWithholdingCents: number | null
   knownEarningsAfterTipWithholdingCents: number
 }
+export type EarningsReportShiftAllocation = {
+  shiftId: string
+  startedAt: string
+  endedAt: string | null
+  wageProfileName: string
+  workedMs: number
+  hourlyRateCents: number | null
+  grossWagesCents: number | null
+  totalTipsCents: number
+  tipTaxWithheldCents: number | null
+  grossEarningsCents: number | null
+  earningsAfterTipWithholdingCents: number | null
+  knownGrossEarningsCents: number
+  knownEarningsAfterTipWithholdingCents: number
+  missingWageSnapshot: boolean
+}
 export type EarningsReport = {
   shiftCount: number
   workedMs: number
@@ -33,6 +49,7 @@ export type EarningsReport = {
   earningsAfterTipWithholdingCents: number | null
   knownEarningsAfterTipWithholdingCents: number
   wageProfiles: WageProfileReport[]
+  shiftAllocations: EarningsReportShiftAllocation[]
 }
 
 function workedIntervals(shift: ShiftRecord, nowMs: number): Interval[] {
@@ -108,6 +125,7 @@ export function calculateEarningsReport(shifts: ShiftRecord[], period: ReportPer
   let missingWageShiftCount = 0
   let relevantShiftCount = 0
   const profileMap = new Map<string, WageProfileReport>()
+  const shiftAllocations: EarningsReportShiftAllocation[] = []
 
   for (const original of shifts) {
     const shift: ShiftRecord = { ...original, tips: original.tips ?? [], breaks: original.breaks ?? [] }
@@ -134,6 +152,7 @@ export function calculateEarningsReport(shifts: ShiftRecord[], period: ReportPer
     const allocatedWages = earnings.grossWagesCents === null ? null : allocateCents(earnings.grossWagesCents, daily)
     if ([...daily.values()].reduce((sum, value) => sum + value, 0) !== fullShiftWorkedMs) wageAllocationValid = false
     const periodDays = [...daily].filter(([day, duration]) => duration > 0 && day >= period.startDate && day <= period.endDate)
+    const periodWorkedMs = periodDays.reduce((sum, [, duration]) => sum + duration, 0)
     // Group by the saved profile ID. The name is the shift snapshot, never a live profile lookup.
     const savedProfileName = shift.wage_profile_name_snapshot?.trim() ?? ''
     const profileKey = shift.wage_profile_id ? `id:${shift.wage_profile_id}:${savedProfileName}` : savedProfileName ? `snapshot:${savedProfileName}` : 'no-profile'
@@ -173,6 +192,32 @@ export function calculateEarningsReport(shifts: ShiftRecord[], period: ReportPer
       }
     }
     if (periodDays.length > 0 || startsInPeriod) profileMap.set(profileKey, profile)
+
+    if (earnings.grossWagesCents !== null || periodWorkedMs > 0 || startsInPeriod) {
+      const tipsInPeriod = startsInPeriod ? earnings.totalTipsCents ?? 0 : 0
+      const wagesInPeriod = allocatedWages === null
+        ? periodWorkedMs === 0 ? 0 : null
+        : periodDays.reduce((sum, [day]) => sum + (allocatedWages.get(day) ?? 0), 0)
+      const withholdingInPeriod = startsInPeriod ? earnings.tipTaxWithheldCents : null
+      const knownGross = (wagesInPeriod ?? 0) + tipsInPeriod
+      const gross = wagesInPeriod === null ? null : knownGross
+      shiftAllocations.push({
+        shiftId: shift.id,
+        startedAt: shift.started_at,
+        endedAt: shift.ended_at,
+        wageProfileName: profileName,
+        workedMs: periodWorkedMs,
+        hourlyRateCents: shift.hourly_wage_cents_snapshot ?? null,
+        grossWagesCents: wagesInPeriod,
+        totalTipsCents: tipsInPeriod,
+        tipTaxWithheldCents: withholdingInPeriod,
+        grossEarningsCents: gross,
+        earningsAfterTipWithholdingCents: gross === null ? null : gross - (withholdingInPeriod ?? 0),
+        knownGrossEarningsCents: knownGross,
+        knownEarningsAfterTipWithholdingCents: knownGross - (withholdingInPeriod ?? 0),
+        missingWageSnapshot: shift.hourly_wage_cents_snapshot == null,
+      })
+    }
   }
 
   const wagesComplete = missingWageShiftCount === 0 && wageAllocationValid
@@ -206,5 +251,6 @@ export function calculateEarningsReport(shifts: ShiftRecord[], period: ReportPer
     earningsAfterTipWithholdingCents: grossEarningsCents === null ? null : grossEarningsCents - (tipTaxWithheldCents ?? 0),
     knownEarningsAfterTipWithholdingCents: knownGrossEarningsCents - (tipTaxWithheldCents ?? 0),
     wageProfiles,
+    shiftAllocations: shiftAllocations.sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.shiftId.localeCompare(right.shiftId)),
   }
 }
