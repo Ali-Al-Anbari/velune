@@ -1,9 +1,10 @@
 import { supabase } from '../lib/supabase'
 import type { ShiftRecord } from './time'
+import { deleteAllShiftAttachments } from './attachments'
 
 const pageSize = 20
 const recentShiftLimit = 3
-const fields = 'id, user_id, started_at, ended_at, wage_profile_id, wage_profile_name_snapshot, hourly_wage_cents_snapshot, hourly_wage_override_cents, normally_tipped_snapshot, include_tips_in_tax_estimate_snapshot, estimated_withholding_bps_snapshot, tip_tax_withheld_cents, manual_edit_version, breaks(id, shift_id, started_at, ended_at, is_paid), tips(id, shift_id, amount_cents, label, created_at, updated_at)'
+const fields = 'id, user_id, started_at, ended_at, wage_profile_id, wage_profile_name_snapshot, hourly_wage_cents_snapshot, hourly_wage_override_cents, normally_tipped_snapshot, include_tips_in_tax_estimate_snapshot, estimated_withholding_bps_snapshot, tip_tax_withheld_cents, manual_edit_version, breaks(id, shift_id, started_at, ended_at, is_paid), tips(id, shift_id, amount_cents, label, created_at, updated_at), attachments:shift_attachments(id, user_id, shift_id, storage_path, original_filename, mime_type, file_size_bytes, created_at)'
 
 export type ShiftHistoryFilters = {
   search?: string
@@ -36,6 +37,7 @@ function asShift(row: unknown): ShiftRecord {
     ...shift,
     breaks: [...(shift.breaks ?? [])].sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at)),
     tips: [...(shift.tips ?? [])].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)),
+    attachments: [...(shift.attachments ?? [])].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)),
   }
 }
 
@@ -224,6 +226,11 @@ export async function updateCompletedShift(shiftId: string, expectedVersion: num
 }
 
 export async function deleteCompletedShift(shiftId: string) {
+  try {
+    await deleteAllShiftAttachments(shiftId)
+  } catch {
+    throw new Error('Could not finish removing this shift’s photos. The shift is still saved; some photos may already have been removed. Retry deletion to continue.')
+  }
   return callRpc<void>('delete_completed_shift', { p_shift_id: shiftId })
 }
 
@@ -233,6 +240,7 @@ export function deleteCompletedShiftErrorMessage(cause: unknown) {
   const code = typeof error?.code === 'string' ? error.code : ''
   const status = typeof error?.status === 'number' ? error.status : 0
   const message = typeof error?.message === 'string' ? error.message.toLowerCase() : ''
+  if (/shift is still saved|photos/.test(message)) return cause instanceof Error ? cause.message : 'Could not finish removing this shift’s photos. The shift is still saved. Retry deletion to continue.'
   if (code === 'PGRST202' || code === 'PGRST203' || /schema cache|could not find the function|function .* does not exist/.test(message)) {
     return 'Shift deletion is temporarily unavailable because the service is out of date. Contact support.'
   }

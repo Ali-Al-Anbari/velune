@@ -141,7 +141,7 @@ describe('manual shift editor', () => {
     const confirmation = screen.getByRole('alertdialog', { name: 'Delete this shift?' })
     expect(confirmation).toHaveTextContent('Wed, Jun 5, 2024')
     expect(confirmation).toHaveTextContent('Thu, Jun 6, 2024')
-    expect(confirmation).toHaveTextContent('breaks, individual tips, and recorded tip withholding')
+    expect(confirmation).toHaveTextContent('breaks, individual tips, recorded tip withholding, and attached photos')
     fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
     expect(api.deleteCompletedShift).not.toHaveBeenCalled()
     expect(onDeleted).not.toHaveBeenCalled()

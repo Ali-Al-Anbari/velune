@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createManualShift, deleteCompletedShift, deleteCompletedShiftErrorMessage, manualShiftErrorMessage, updateCompletedShift, type ManualShiftInput } from './api'
 
 const db = vi.hoisted(() => ({ rpc: vi.fn() }))
+const attachmentApi = vi.hoisted(() => ({ deleteAllShiftAttachments: vi.fn() }))
 vi.mock('../lib/supabase', () => ({
   supabase: { rpc: db.rpc },
 }))
+vi.mock('./attachments', () => attachmentApi)
 
 const input: ManualShiftInput = {
   started_at: '2024-06-05T21:00:00.000Z', ended_at: '2024-06-06T05:00:00.000Z',
@@ -13,7 +15,7 @@ const input: ManualShiftInput = {
 }
 const loaded = { id: 'shift-a', user_id: 'user-a', started_at: input.started_at, ended_at: input.ended_at, breaks: input.breaks }
 
-beforeEach(() => { vi.clearAllMocks(); db.rpc.mockResolvedValue({ data: loaded, error: null }) })
+beforeEach(() => { vi.clearAllMocks(); db.rpc.mockResolvedValue({ data: loaded, error: null }); attachmentApi.deleteAllShiftAttachments.mockResolvedValue(undefined) })
 
 describe('manual shift RPC API', () => {
   it('sends the stable create and request IDs', async () => {
@@ -34,7 +36,18 @@ describe('manual shift RPC API', () => {
     })
   })
 
-  it('calls only the completed-shift delete RPC with the selected row ID', async () => {
+  it('cleans Storage attachments before calling the completed-shift delete RPC', async () => {
+    db.rpc.mockResolvedValueOnce({ data: null, error: null })
+    await expect(deleteCompletedShift('shift-a')).resolves.toBeNull()
+    expect(attachmentApi.deleteAllShiftAttachments).toHaveBeenCalledWith('shift-a')
+    expect(db.rpc).toHaveBeenCalledWith('delete_completed_shift', { p_shift_id: 'shift-a' })
+  })
+
+  it('keeps the shift when any attachment cleanup fails and permits a safe retry', async () => {
+    attachmentApi.deleteAllShiftAttachments.mockRejectedValueOnce(new Error('Storage permission denied'))
+    await expect(deleteCompletedShift('shift-a')).rejects.toThrow('The shift is still saved')
+    expect(db.rpc).not.toHaveBeenCalled()
+    attachmentApi.deleteAllShiftAttachments.mockResolvedValueOnce(undefined)
     db.rpc.mockResolvedValueOnce({ data: null, error: null })
     await expect(deleteCompletedShift('shift-a')).resolves.toBeNull()
     expect(db.rpc).toHaveBeenCalledWith('delete_completed_shift', { p_shift_id: 'shift-a' })

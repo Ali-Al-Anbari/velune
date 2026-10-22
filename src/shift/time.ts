@@ -13,6 +13,7 @@ export type ShiftRecord = {
   ended_at: string | null
   breaks: BreakRecord[]
   tips?: import('../earnings/api').Tip[]
+  attachments?: import('./attachments').ShiftAttachment[]
   tip_tax_withheld_cents?: number | null
   wage_profile_id?: string | null
   wage_profile_name_snapshot?: string | null

@@ -5,6 +5,7 @@ import { loadWageProfiles, type WageProfile } from '../earnings/api'
 import { EditMoney } from '../earnings/EditMoney'
 import { centsInput, formatCents, parsePositiveCents } from '../earnings/money'
 import { ShiftHistoryItem } from './ShiftHistoryItem'
+import { ShiftAttachments } from './ShiftAttachments'
 
 const ManualShiftEditor = lazy(() => import('./ManualShiftEditor').then((module) => ({ default: module.ManualShiftEditor })))
 
@@ -246,6 +247,7 @@ export function ShiftLogger({ userId, onViewAll }: { userId: string; onViewAll?:
           <div className="flex w-full justify-end gap-3"><button type="button" className="link-button px-3 py-2 text-sm" disabled={controlsDisabled} onClick={() => { setBreakPanelOpen(false); setPaidBreak(false) }}>Cancel</button><button type="button" className={secondaryButton} disabled={controlsDisabled || (breakRequest.current !== null && breakRequest.current.paid !== paidBreak)} onClick={() => startBreak(paidBreak)}>{busy === 'break' ? 'Saving…' : breakRequest.current ? `Retry ${breakRequest.current.paid ? 'paid' : 'unpaid'} break` : 'Start break'}</button></div>
         </div> : null}
         <div className="mt-4"><EditMoney shift={active} onChanged={() => refreshTipShift(active.id)} /></div>
+        <ShiftAttachments shiftId={active.id} userId={active.user_id} initialAttachments={active.attachments} />
       </section> : <section aria-labelledby="ready-title"><h1 id="ready-title" className="font-serif text-4xl tracking-tight sm:text-5xl">Ready when you are.</h1>
         <div className={`${panel} relative mt-6 overflow-hidden p-7 sm:p-9`}><div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full border border-[#bd83aa55] bg-[radial-gradient(circle_at_30%_70%,#8d587966,transparent_65%)]" aria-hidden="true" />
           <p className="relative font-serif text-2xl text-[#f4dce9]">Start a shift to begin tracking your time.</p>
