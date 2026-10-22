@@ -21,6 +21,9 @@ vi.mock('./lib/supabase', () => ({
 vi.mock('./shift/ShiftLogger', () => ({
   ShiftLogger: () => <h1>Current shift</h1>,
 }))
+vi.mock('./earnings/EarningsReports', () => ({
+  EarningsReports: () => <h1>Earnings reports</h1>,
+}))
 
 const confirmedUser = { id: 'user-a', email: 'a@example.com', email_confirmed_at: '2026-10-20T00:00:00Z' }
 
@@ -113,6 +116,16 @@ describe('Velune authentication', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByRole('heading', { name: 'Current shift' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/app')
+  })
+
+  it('opens earnings reports from protected navigation', async () => {
+    window.history.replaceState(null, '', '/app')
+    mock.getUser.mockResolvedValue({ data: { user: confirmedUser }, error: null })
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Current shift' })
+    fireEvent.click(screen.getByRole('button', { name: 'Earnings' }))
+    expect(await screen.findByRole('heading', { name: 'Earnings reports' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/reports')
   })
 
   it('signs out and removes protected content', async () => {

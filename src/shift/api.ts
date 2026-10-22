@@ -127,3 +127,28 @@ export async function updateCompletedShift(shiftId: string, expectedVersion: num
     p_breaks: input.breaks,
   })
 }
+
+export async function deleteCompletedShift(shiftId: string) {
+  return callRpc<void>('delete_completed_shift', { p_shift_id: shiftId })
+}
+
+/** Convert deletion failures to short, safe messages without exposing database details. */
+export function deleteCompletedShiftErrorMessage(cause: unknown) {
+  const error = cause && typeof cause === 'object' ? cause as Record<string, unknown> : null
+  const code = typeof error?.code === 'string' ? error.code : ''
+  const status = typeof error?.status === 'number' ? error.status : 0
+  const message = typeof error?.message === 'string' ? error.message.toLowerCase() : ''
+  if (code === 'PGRST202' || code === 'PGRST203' || /schema cache|could not find the function|function .* does not exist/.test(message)) {
+    return 'Shift deletion is temporarily unavailable because the service is out of date. Contact support.'
+  }
+  if (status === 401 || code === '401' || /sign in required|jwt expired|not authenticated/.test(message)) {
+    return 'Your session has expired. Sign in again, then retry.'
+  }
+  if (code === '22023' && /active/.test(message)) return 'Active shifts cannot be deleted. End the shift first.'
+  if (code === '42501') return 'This completed shift is no longer available to delete. Refresh and try again.'
+  if (cause instanceof TypeError || /network|failed to fetch|networkerror|load failed/.test(message)) {
+    return 'Could not reach Velune. Check your connection and retry.'
+  }
+  if (/supabase is unavailable/.test(message)) return 'Shift deletion is not configured on this device. Contact support.'
+  return 'Could not delete this shift. Please try again.'
+}

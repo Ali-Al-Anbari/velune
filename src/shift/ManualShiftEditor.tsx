@@ -1,11 +1,11 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { centsInput, parsePositiveCents } from '../earnings/money'
 import type { WageProfile } from '../earnings/api'
-import { createManualShift, manualShiftErrorMessage, updateCompletedShift, type ManualBreakInput } from './api'
-import { localDateTimeInput, parseLocalDateTimeInput, type BreakRecord, type ShiftRecord, validateManualShiftRange } from './time'
+import { createManualShift, deleteCompletedShift, deleteCompletedShiftErrorMessage, manualShiftErrorMessage, updateCompletedShift, type ManualBreakInput } from './api'
+import { formatLocalDate, formatLocalTime, localDateTimeInput, parseLocalDateTimeInput, type BreakRecord, type ShiftRecord, validateManualShiftRange } from './time'
 
 type BreakDraft = { id: string; startedAt: string; endedAt: string; isPaid: boolean; originalStartedAt?: string; originalEndedAt?: string }
-type Props = { shift: ShiftRecord | null; profiles: WageProfile[]; onCancel: () => void; onSaved: () => Promise<void> }
+type Props = { shift: ShiftRecord | null; profiles: WageProfile[]; onCancel: () => void; onSaved: () => Promise<void>; onDeleted: (shiftId: string) => Promise<void> }
 
 const field = 'scheme-dark mt-1 w-full min-w-0 rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-3 text-[#f4eaf7] outline-none focus:border-[#e9a4bf] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2]'
 const primary = 'rounded-xl bg-[#e9a4bf] px-5 py-3 text-sm font-semibold text-[#241426] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55'
@@ -44,7 +44,7 @@ function makeBreaks(drafts: BreakDraft[], start: string, end: string): ManualBre
   return breaks
 }
 
-export function ManualShiftEditor({ shift, profiles, onCancel, onSaved }: Props) {
+export function ManualShiftEditor({ shift, profiles, onCancel, onSaved, onDeleted }: Props) {
   const dialogId = useId()
   const [range] = useState(defaultRange)
   const initialStartedAt = shift ? localDateTimeInput(shift.started_at) : range.startedAt
@@ -53,14 +53,17 @@ export function ManualShiftEditor({ shift, profiles, onCancel, onSaved }: Props)
   const initialEndedIso = shift?.ended_at ?? range.endedIso
   const [startedAt, setStartedAt] = useState(initialStartedAt)
   const [endedAt, setEndedAt] = useState(initialEndedAt)
-  const [profileId, setProfileId] = useState(() => shift?.wage_profile_id ?? profiles.find((item) => item.is_default && !item.is_archived)?.id ?? '')
+  const [profileId, setProfileId] = useState(() => shift ? shift.wage_profile_id ?? '' : profiles.find((item) => item.is_default && !item.is_archived)?.id ?? '')
   const [override, setOverride] = useState(() => centsInput(shift?.hourly_wage_override_cents ?? null))
   const [breaks, setBreaks] = useState<BreakDraft[]>(() => (shift?.breaks ?? []).map(fromBreak))
   const [dirty, setDirty] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [createIds] = useState(() => ({ shiftId: crypto.randomUUID(), requestId: crypto.randomUUID() }))
+  const [createIds] = useState(() => shift ? null : ({ shiftId: crypto.randomUUID(), requestId: crypto.randomUUID() }))
+  const savingRef = useRef(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const activeProfiles = profiles.filter((item) => !item.is_archived)
   const archivedSelection = profiles.find((item) => item.id === profileId && item.is_archived)
   const selectedProfile = profiles.find((item) => item.id === profileId)
@@ -85,6 +88,7 @@ export function ManualShiftEditor({ shift, profiles, onCancel, onSaved }: Props)
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (savingRef.current) return
     setError('')
     let started: string
     let ended: string
@@ -102,14 +106,17 @@ export function ManualShiftEditor({ shift, profiles, onCancel, onSaved }: Props)
       return
     }
 
+    savingRef.current = true
     setSaving(true)
     try {
       if (shift) {
-        await updateCompletedShift(shift.id, shift.manual_edit_version ?? 0, {
+        const updated = await updateCompletedShift(shift.id, shift.manual_edit_version ?? 0, {
           started_at: started, ended_at: ended, wage_profile_id: profileId || null,
           hourly_wage_override_cents: wageOverride, breaks: breakInputs,
         })
+        if (updated.id !== shift.id) throw new Error('The saved shift identity did not match the edited shift.')
       } else {
+        if (!createIds) throw new Error('Shift creation request could not be prepared.')
         await createManualShift(createIds.shiftId, createIds.requestId, {
           started_at: started, ended_at: ended, wage_profile_id: profileId || null,
           hourly_wage_override_cents: wageOverride, breaks: breakInputs,
@@ -119,9 +126,30 @@ export function ManualShiftEditor({ shift, profiles, onCancel, onSaved }: Props)
     } catch (cause) {
       setError(manualShiftErrorMessage(cause))
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
+
+  async function deleteShift() {
+    if (!shift || savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    setDeleteError('')
+    try {
+      await deleteCompletedShift(shift.id)
+      await onDeleted(shift.id)
+    } catch (cause) {
+      setDeleteError(deleteCompletedShiftErrorMessage(cause))
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
+  const shiftRange = shift?.ended_at
+    ? `${formatLocalDate(shift.started_at)} · ${formatLocalTime(shift.started_at)} – ${formatLocalDate(shift.ended_at)} · ${formatLocalTime(shift.ended_at)}`
+    : ''
 
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#090711cc] p-2 sm:items-center sm:p-6">
     <section role="dialog" aria-modal="true" aria-labelledby={`${dialogId}-title`} className="max-h-[94dvh] w-full max-w-xl overflow-y-auto rounded-[1.75rem] border border-[#9b719a70] bg-[#261b2d] p-5 shadow-2xl shadow-black/40 sm:p-7">
@@ -156,7 +184,9 @@ export function ManualShiftEditor({ shift, profiles, onCancel, onSaved }: Props)
         {error ? <p role="alert" className="rounded-xl border border-[#e9a4bf55] bg-[#512b43] p-3 text-sm text-[#ffe4ed]">{error}</p> : null}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" className={secondary} disabled={saving} onClick={() => dirty ? setDiscarding(true) : onCancel()}>Cancel</button><button type="submit" className={primary} disabled={saving || Boolean(shift && !dirty)}>{saving ? 'Saving…' : shift ? 'Save changes' : 'Add completed shift'}</button></div>
       </form>
+      {shift?.ended_at ? <div className="mt-6 border-t border-[#9b719a35] pt-4"><button type="button" className="link-button text-sm text-[#e9a4bf]" disabled={saving} onClick={() => { setDeleteError(''); setConfirmDelete(true) }}>Delete shift</button></div> : null}
     </section>
     {discarding ? <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#090711cc] px-5"><section role="alertdialog" aria-modal="true" aria-labelledby={`${dialogId}-discard-title`} className="w-full max-w-sm rounded-2xl border border-[#9b719a70] bg-[#261b2d] p-5"><h3 id={`${dialogId}-discard-title`} className="font-serif text-2xl">Discard changes?</h3><p className="mt-2 text-sm text-[#c9bfd0]">Your unsaved shift changes will be lost.</p><div className="mt-5 flex justify-end gap-3"><button type="button" className={secondary} onClick={() => setDiscarding(false)}>Keep editing</button><button type="button" className={primary} onClick={onCancel}>Discard</button></div></section></div> : null}
+    {confirmDelete && shift ? <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#090711dd] px-5"><section role="alertdialog" aria-modal="true" aria-labelledby={`${dialogId}-delete-title`} className="w-full max-w-md rounded-2xl border border-[#e9a4bf70] bg-[#261b2d] p-5 shadow-2xl sm:p-6"><h3 id={`${dialogId}-delete-title`} className="font-serif text-2xl text-[#f4eaf7]">Delete this shift?</h3><p className="mt-2 text-sm text-[#e8d8ec]">{shiftRange}</p><p className="mt-3 text-sm leading-relaxed text-[#c9bfd0]">This permanently deletes the shift, its breaks, individual tips, and recorded tip withholding. {dirty ? 'Your unsaved edits will also be discarded.' : ''} This cannot be undone.</p>{deleteError ? <p role="alert" className="mt-3 text-sm text-[#ffe4ed]">{deleteError}</p> : null}<div className="mt-5 flex flex-col-reverse justify-end gap-3 sm:flex-row"><button type="button" className={secondary} disabled={saving} onClick={() => { setConfirmDelete(false); setDeleteError('') }}>Cancel</button><button type="button" className="rounded-xl bg-[#a34b69] px-4 py-3 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55" disabled={saving} onClick={() => void deleteShift()}>{saving ? 'Deleting…' : 'Confirm delete'}</button></div></section></div> : null}
   </div>
 }

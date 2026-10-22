@@ -6,7 +6,7 @@ import { localDateTimeInput, type ShiftRecord } from './time'
 const api = vi.hoisted(() => ({
   loadShiftSnapshot: vi.fn(), loadShiftPage: vi.fn(), loadShift: vi.fn(), startShift: vi.fn(),
   beginBreak: vi.fn(), endBreak: vi.fn(), endShift: vi.fn(),
-  createManualShift: vi.fn(), updateCompletedShift: vi.fn(),
+  createManualShift: vi.fn(), updateCompletedShift: vi.fn(), deleteCompletedShift: vi.fn(),
 }))
 const earnings = vi.hoisted(() => ({ loadWageProfiles: vi.fn() }))
 vi.mock('./api', () => api)
@@ -30,6 +30,7 @@ beforeEach(() => {
   api.endShift.mockResolvedValue(base)
   api.createManualShift.mockResolvedValue(base)
   api.updateCompletedShift.mockResolvedValue(base)
+  api.deleteCompletedShift.mockResolvedValue(undefined)
   earnings.loadWageProfiles.mockResolvedValue([])
 })
 afterEach(cleanup)
@@ -186,6 +187,8 @@ describe('shift logger', () => {
     fireEvent.change(within(reopenedEditor).getByLabelText('Start date and time'), { target: { value: localDateTimeInput('2024-06-05T10:00:00Z') } })
     fireEvent.click(within(reopenedEditor).getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(api.updateCompletedShift).toHaveBeenCalledOnce())
+    expect(api.updateCompletedShift.mock.calls[0]?.slice(0, 2)).toEqual([oldShift.id, oldShift.manual_edit_version])
+    expect(api.createManualShift).not.toHaveBeenCalled()
     expect(await screen.findAllByText('$130.00')).toHaveLength(3)
   })
 
@@ -240,7 +243,8 @@ describe('shift logger', () => {
 
   it('confirms ending a shift while on break and shows its saved summary', async () => {
     const active = { ...base, breaks: [{ id: 'b', shift_id: base.id, started_at: base.started_at, ended_at: null, is_paid: false }] }
-    api.loadShiftSnapshot.mockResolvedValueOnce(snapshot(active)).mockResolvedValue(snapshot(null, [{ ...active, ended_at: new Date().toISOString(), breaks: [{ ...active.breaks[0]!, ended_at: new Date().toISOString() }] }]))
+    const endedAt = new Date().toISOString()
+    api.loadShiftSnapshot.mockResolvedValueOnce(snapshot(active)).mockResolvedValue(snapshot(null, [{ ...active, ended_at: endedAt, breaks: [{ ...active.breaks[0]!, ended_at: endedAt }] }]))
     render(<ShiftLogger userId="user-a" />)
     expect(await screen.findByText('On break')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'End shift' }))
@@ -249,6 +253,31 @@ describe('shift logger', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm end shift' }))
     expect(await screen.findByRole('heading', { name: 'Completed shift summary' })).toBeInTheDocument()
     expect(api.endShift).toHaveBeenCalledWith(base.id)
+    expect(screen.getAllByRole('article')).toHaveLength(1)
+  })
+
+  it('deletes a completed shift only after confirmation and refreshes history after success', async () => {
+    const saved = { ...base, started_at: '2024-06-05T09:00:00Z', ended_at: '2024-06-05T17:00:00Z',
+      wage_profile_id: null, wage_profile_name_snapshot: null, hourly_wage_cents_snapshot: null,
+      tips: [{ id: 'tip', shift_id: base.id, amount_cents: 500, label: 'Cash' as const, created_at: '', updated_at: '' }],
+      tip_tax_withheld_cents: 75 }
+    api.loadShiftSnapshot.mockResolvedValueOnce(snapshot(null, [saved])).mockResolvedValue(snapshot(null, []))
+    render(<ShiftLogger userId="user-a" />)
+    const editButton = await screen.findByRole('button', { name: 'Edit shift' })
+    fireEvent.click(editButton)
+    const editor = await screen.findByRole('dialog', { name: 'Edit shift' })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Delete shift' }))
+    const confirmation = screen.getByRole('alertdialog', { name: 'Delete this shift?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+    expect(api.deleteCompletedShift).not.toHaveBeenCalled()
+    expect(screen.getByRole('article')).toBeInTheDocument()
+
+    fireEvent.click(within(editor).getByRole('button', { name: 'Delete shift' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    await waitFor(() => expect(api.deleteCompletedShift).toHaveBeenCalledWith(saved.id))
+    expect(await screen.findByText('Shift deleted.')).toBeInTheDocument()
+    expect(api.loadShiftSnapshot).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
   })
 
   it('ends an active break and returns to the compact working state', async () => {

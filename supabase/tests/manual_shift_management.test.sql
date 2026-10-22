@@ -1,5 +1,5 @@
 begin;
-select plan(35);
+select plan(36);
 
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
@@ -55,6 +55,7 @@ select lives_ok($$select public.update_completed_shift(
 select is((select wage_profile_name_snapshot from public.shifts where id = 'e0000000-0000-4000-8000-000000000001'), 'Original', 'time-only edit preserves the old profile snapshot');
 select is((select hourly_wage_cents_snapshot from public.shifts where id = 'e0000000-0000-4000-8000-000000000001'), 2025, 'time-only edit preserves the wage snapshot');
 select is((select manual_edit_version from public.shifts where id = 'e0000000-0000-4000-8000-000000000001'), 1, 'successful update increments the edit version');
+select is((select count(*)::integer from public.shifts where id = 'e0000000-0000-4000-8000-000000000001'), 1, 'completed-shift edit updates the original row without creating another shift');
 select is((select amount_cents from public.tips where id = 'a0000000-0000-4000-8000-000000000021'), 3250, 'editing a shift preserves individual tips');
 select is((select tip_tax_withheld_cents from public.shifts where id = 'e0000000-0000-4000-8000-000000000001'), 250, 'editing a shift preserves tip withholding');
 
