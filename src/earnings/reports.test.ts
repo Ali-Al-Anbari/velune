@@ -183,7 +183,19 @@ describe('earnings report allocation', () => {
     expect(oneMissing.earningsAfterTipWithholdingCents).toBeNull()
     expect(oneMissing.knownEarningsAfterTipWithholdingCents).toBe(4000)
     expect(oneMissing.wageProfiles.find((item) => item.name === 'Day shift')).toMatchObject({ knownWagesCents: 1800, knownWageShiftCount: 1, missingWageShiftCount: 0 })
-    expect(oneMissing.wageProfiles.find((item) => item.name === 'No profile recorded')).toMatchObject({ wagesCents: null, knownWagesCents: 0, missingWageShiftCount: 1 })
+    expect(oneMissing.wageProfiles.find((item) => item.name === 'No profile')).toMatchObject({ wagesCents: null, knownWagesCents: 0, missingWageShiftCount: 1 })
+
+    const profileGroups = calculateEarningsReport([
+      { ...known, wage_profile_id: 'profile-a', wage_profile_name_snapshot: 'Day shift' },
+      { ...known, id: 'other', wage_profile_id: 'profile-b', wage_profile_name_snapshot: 'Night shift', started_at: iso('2026-10-21T12:00'), ended_at: iso('2026-10-21T13:00'), tips: [], tip_tax_withheld_cents: 0 },
+      { ...unknown, id: 'no-profile', tips: [], tip_tax_withheld_cents: null },
+    ], period('2026-10-21'))
+    expect(profileGroups.wageProfiles).toHaveLength(3)
+    expect(profileGroups.wageProfiles.map((item) => item.name)).toEqual(expect.arrayContaining(['Day shift', 'Night shift', 'No profile']))
+    expect(profileGroups.wageProfiles.reduce((sum, item) => sum + item.knownWagesCents, 0)).toBe(profileGroups.knownGrossWagesCents)
+    expect(profileGroups.wageProfiles.reduce((sum, item) => sum + item.totalTipsCents, 0)).toBe(profileGroups.totalTipsCents)
+    expect(profileGroups.wageProfiles.reduce((sum, item) => sum + (item.tipTaxWithheldCents ?? 0), 0)).toBe(profileGroups.tipTaxWithheldCents)
+    expect(profileGroups.wageProfiles.reduce((sum, item) => sum + item.knownEarningsAfterTipWithholdingCents, 0)).toBe(profileGroups.knownEarningsAfterTipWithholdingCents)
 
     const secondUnknown = { ...unknown, id: 'unknown-b', started_at: iso('2026-10-21T11:00'), ended_at: iso('2026-10-21T12:00') }
     const multipleMissing = calculateEarningsReport([known, unknown, secondUnknown], period('2026-10-21'))

@@ -2,7 +2,19 @@ import { supabase } from '../lib/supabase'
 import type { ShiftRecord } from './time'
 
 const pageSize = 20
+const recentShiftLimit = 3
 const fields = 'id, user_id, started_at, ended_at, wage_profile_id, wage_profile_name_snapshot, hourly_wage_cents_snapshot, hourly_wage_override_cents, normally_tipped_snapshot, include_tips_in_tax_estimate_snapshot, estimated_withholding_bps_snapshot, tip_tax_withheld_cents, manual_edit_version, breaks(id, shift_id, started_at, ended_at, is_paid), tips(id, shift_id, amount_cents, label, created_at, updated_at)'
+
+export type ShiftHistoryFilters = {
+  search?: string
+  startDate?: string
+  endDate?: string
+  wageProfileId?: string
+  withTipsOnly?: boolean
+  missingWageOnly?: boolean
+  sort?: 'newest' | 'oldest' | 'longest' | 'most-tips' | 'highest-rate'
+}
+export type ShiftHistoryCursor = { startedAt: string; id: string; sortValue?: number | string | null }
 
 export type ManualBreakInput = { id: string; started_at: string; ended_at: string; is_paid: boolean }
 export type ManualShiftInput = {
@@ -37,11 +49,94 @@ export async function loadShiftPage(userId: string, offset = 0) {
   return { shifts: rows.slice(0, pageSize), hasMore: rows.length > pageSize }
 }
 
+function localDateStart(date: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!match) return null
+  const value = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  if (value.getFullYear() !== Number(match[1]) || value.getMonth() !== Number(match[2]) - 1 || value.getDate() !== Number(match[3])) return null
+  return value
+}
+
+function nextLocalDay(value: Date) {
+  const next = new Date(value)
+  next.setDate(next.getDate() + 1)
+  return next
+}
+
+/** Query one RLS-protected history page after applying filters on the complete owner-scoped dataset. */
+export async function loadShiftHistoryPage(userId: string, cursor: ShiftHistoryCursor | null, filters: ShiftHistoryFilters = {}) {
+  let startedAt: string | null = null
+  let endedBefore: string | null = null
+  if (filters.startDate) {
+    const start = localDateStart(filters.startDate)
+    if (!start) throw new Error('Choose a valid start date.')
+    startedAt = start.toISOString()
+  }
+  if (filters.endDate) {
+    const end = localDateStart(filters.endDate)
+    if (!end) throw new Error('Choose a valid end date.')
+    endedBefore = nextLocalDay(end).toISOString()
+  }
+  const search = filters.search?.trim() ?? ''
+  const searchId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(search) ? search : null
+  const searchDate = searchId ? null : localDateStart(search)
+  const sort = filters.sort ?? 'newest'
+  const { data: cursorRows, error: cursorError } = await client().rpc('completed_shift_history_page', {
+    p_started_at: startedAt,
+    p_ended_before: endedBefore,
+    p_wage_profile_id: filters.wageProfileId && filters.wageProfileId !== 'no-profile' ? filters.wageProfileId : null,
+    p_no_profile: filters.wageProfileId === 'no-profile',
+    p_with_tips_only: Boolean(filters.withTipsOnly),
+    p_missing_wage_only: Boolean(filters.missingWageOnly),
+    p_search: search || null,
+    p_search_id: searchId,
+    p_search_started_at: searchDate?.toISOString() ?? null,
+    p_search_ended_before: searchDate ? nextLocalDay(searchDate).toISOString() : null,
+    p_sort: sort === 'most-tips' ? 'tips' : sort === 'highest-rate' ? 'hourly_rate' : sort,
+    p_cursor_started_at: cursor?.startedAt ?? null,
+    p_cursor_id: cursor?.id ?? null,
+    p_cursor_value: cursor?.sortValue ?? null,
+  })
+  if (cursorError) throw cursorError
+  // PostgREST serializes bigint columns as strings; retain the exact cursor value.
+  const ordered = (cursorRows ?? []) as { shift_id: string; started_at: string; sort_value: number | string | null }[]
+  const pageRows = ordered.slice(0, pageSize)
+  const ids = pageRows.map((item) => item.shift_id)
+  if (!ids.length) {
+    return { shifts: [], hasMore: false, pageSize, nextCursor: null }
+  }
+  const { data, error } = await client().from('shifts').select(fields)
+    .eq('user_id', userId).not('ended_at', 'is', null).in('id', ids)
+  if (error) throw error
+  const byId = new Map((data ?? []).map((row) => {
+    const shift = asShift(row)
+    return [shift.id, shift]
+  }))
+  const visible = ids.map((id) => byId.get(id)).filter((shift): shift is ShiftRecord => Boolean(shift))
+  const last = pageRows[pageRows.length - 1]
+  return {
+    shifts: visible,
+    hasMore: ordered.length > pageSize,
+    pageSize,
+    nextCursor: ordered.length > pageSize && last ? { startedAt: last.started_at, id: last.shift_id, sortValue: last.sort_value } : null,
+  }
+}
+
+async function loadRecentShifts(userId: string) {
+  const { data, error } = await client().from('shifts').select(fields)
+    .eq('user_id', userId).not('ended_at', 'is', null)
+    .order('started_at', { ascending: false }).order('id', { ascending: false })
+    .limit(recentShiftLimit + 1)
+  if (error) throw error
+  const rows = (data ?? []).map(asShift)
+  return { shifts: rows.slice(0, recentShiftLimit), hasMore: rows.length > recentShiftLimit }
+}
+
 export async function loadShiftSnapshot(userId: string) {
   const [activeResult, history] = await Promise.all([
     client().from('shifts').select(fields)
       .eq('user_id', userId).is('ended_at', null).maybeSingle(),
-    loadShiftPage(userId),
+    loadRecentShifts(userId),
   ])
   if (activeResult.error) throw activeResult.error
   return { active: activeResult.data ? asShift(activeResult.data) : null, ...history }

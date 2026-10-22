@@ -6,8 +6,8 @@ import { centsInput, formatCents, parsePositiveCents } from './money'
 const field = 'rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-2.5 text-[#f4eaf7] outline-none focus:border-[#e9a4bf]'
 const action = 'rounded-xl bg-[#e9a4bf] px-4 py-2.5 text-sm font-semibold text-[#241426] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55'
 
-export function TipsEditor({ shift, onChanged, showTotal = true }: { shift: ShiftRecord; onChanged: () => Promise<void>; showTotal?: boolean }) {
-  const [open, setOpen] = useState(false)
+export function TipsEditor({ shift, onChanged, showTotal = true, showTrigger = true }: { shift: ShiftRecord; onChanged: () => Promise<void>; showTotal?: boolean; showTrigger?: boolean }) {
+  const [open, setOpen] = useState(!showTrigger)
   const [amount, setAmount] = useState('')
   const [label, setLabel] = useState<Tip['label']>(null)
   const [editing, setEditing] = useState<Tip | null>(null)
@@ -66,7 +66,7 @@ export function TipsEditor({ shift, onChanged, showTotal = true }: { shift: Shif
   }
 
   return <section className={`${showTotal ? 'mt-4 border-t border-[#9b719a30] pt-4' : 'border-t border-[#9b719a30] pt-3'}`} aria-label="Tips">
-    <div className={`flex items-center gap-3 ${showTotal ? 'justify-between' : 'justify-end'}`}>{showTotal ? <div><h4 className="text-sm font-medium text-[#f4eaf7]">Total tips</h4><p className="text-lg tabular-nums text-[#f4dce9]">{formatCents(total)}</p></div> : null}<button type="button" className="link-button text-sm" disabled={busy} onClick={() => { setOpen((value) => !value); setError('') }}>{open ? 'Close tips' : 'Manage tips'}</button></div>
+    <div className={`flex items-center gap-3 ${showTotal ? 'justify-between' : 'justify-end'}`}>{showTotal ? <div><h4 className="text-sm font-medium text-[#f4eaf7]">Total tips</h4><p className="text-lg tabular-nums text-[#f4dce9]">{formatCents(total)}</p></div> : null}{showTrigger ? <button type="button" className="link-button text-sm" disabled={busy} onClick={() => { setOpen((value) => !value); setError('') }}>{open ? 'Close tips' : 'Manage tips'}</button> : null}</div>
     {notice ? <p role="status" className="mt-2 text-xs text-[#d8c8e2]">{notice}</p> : null}
     {error && !deleteTarget ? <p role="alert" className="mt-2 text-xs text-[#f3b2ca]">{error}</p> : null}
     {open ? <div className="mt-4 space-y-4">

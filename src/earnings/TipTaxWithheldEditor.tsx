@@ -6,10 +6,10 @@ import { centsInput, formatCents, parseNonnegativeCents } from './money'
 const field = 'mt-1.5 w-full rounded-xl border border-[#9b719a70] bg-[#1d1725] px-3 py-2.5 text-[#f4eaf7] outline-none focus:border-[#e9a4bf]'
 const button = 'rounded-xl bg-[#e9a4bf] px-4 py-2.5 text-sm font-semibold text-[#241426] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55'
 
-export function TipTaxWithheldEditor({ shift, onChanged }: { shift: ShiftRecord; onChanged: () => Promise<void> }) {
+export function TipTaxWithheldEditor({ shift, onChanged, showTrigger = true }: { shift: ShiftRecord; onChanged: () => Promise<void>; showTrigger?: boolean }) {
   const helpId = useId()
   const [amount, setAmount] = useState(() => centsInput(shift.tip_tax_withheld_cents ?? null))
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(!showTrigger)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -52,7 +52,7 @@ export function TipTaxWithheldEditor({ shift, onChanged }: { shift: ShiftRecord;
         <p className="text-xs text-[#c9bfd0]">Tip tax withheld</p>
         <p className="mt-0.5 text-sm tabular-nums text-[#f4eaf7]">{shift.tip_tax_withheld_cents == null ? 'Not entered' : formatCents(shift.tip_tax_withheld_cents)}</p>
       </div>
-      <button type="button" className="rounded-lg px-3 py-2 text-sm text-[#e9a4bf] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55" aria-label={editing ? 'Cancel tip tax withholding edit' : 'Edit tip tax withholding'} aria-expanded={editing} aria-controls={editing ? helpId : undefined} disabled={busy} onClick={() => { setEditing((open) => !open); setAmount(centsInput(shift.tip_tax_withheld_cents ?? null)); setError(''); setNotice('') }}>{editing ? 'Cancel' : 'Edit'}</button>
+      {showTrigger ? <button type="button" className="rounded-lg px-3 py-2 text-sm text-[#e9a4bf] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:opacity-55" aria-label={editing ? 'Cancel tip tax withholding edit' : 'Edit tip tax withholding'} aria-expanded={editing} aria-controls={editing ? helpId : undefined} disabled={busy} onClick={() => { setEditing((open) => !open); setAmount(centsInput(shift.tip_tax_withheld_cents ?? null)); setError(''); setNotice('') }}>{editing ? 'Cancel' : 'Edit'}</button> : null}
     </div>
     {editing ? <div id={helpId}>
       <form onSubmit={(event) => void save(event)} className="mt-3 flex flex-wrap items-end gap-3">

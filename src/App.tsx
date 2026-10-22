@@ -5,6 +5,7 @@ import { supabase } from './lib/supabase'
 import { ShiftLogger } from './shift/ShiftLogger'
 import { WageProfiles } from './earnings/WageProfiles'
 import { EarningsReports } from './earnings/EarningsReports'
+import { ShiftHistory } from './shift/ShiftHistory'
 
 function redirectFailed() {
   const query = new URLSearchParams(window.location.search)
@@ -18,16 +19,47 @@ function Orb() {
   </div>
 }
 
-function Shell({ children, action }: { children: ReactNode; action?: ReactNode }) {
-  return <main className="landing-shell min-h-svh overflow-hidden text-[#f4eaf7]">
-    <div className="landing-inner mx-auto flex min-h-svh w-full max-w-6xl flex-col px-7 sm:px-12 lg:px-16">
+function Shell({ children, action, navigation }: { children: ReactNode; action?: ReactNode; navigation?: ReactNode }) {
+  return <main className="landing-shell min-h-svh overflow-x-clip text-[#f4eaf7]">
+    <div className={`landing-inner mx-auto flex min-h-svh w-full max-w-6xl flex-col px-7 sm:px-12 lg:px-16 ${navigation ? 'pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] lg:pb-0' : ''}`}>
       <header className="app-header flex flex-wrap items-center justify-between gap-3">
         <span className="brand-mark">velune</span>{action}
       </header>
       {children}
       <footer className="pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-8 text-sm text-[#b6a4bd] sm:pb-10">Hey Shaudi!!</footer>
     </div>
+    {navigation}
   </main>
+}
+
+const destinations = [
+  { label: 'Shifts', path: '/app', icon: <><path d="M8 3v3m8-3v3M4.5 9h15" /><rect x="3.5" y="5" width="17" height="16" rx="3" /></> },
+  { label: 'History', path: '/app/history', icon: <><path d="M4 7h16M4 12h16M4 17h10" /><circle cx="18" cy="17" r="3" /></> },
+  { label: 'Earnings', path: '/app/reports', icon: <><path d="M4 19V5m0 14h16" /><path d="m7 15 4-4 3 2 5-6" /></> },
+  { label: 'Profiles', path: '/app/profiles', icon: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.5-3.4 3.2-5.5 7-5.5s6.5 2.1 7 5.5" /></> },
+]
+
+function AppNavigation({ path, navigate, mobile = false }: { path: string; navigate: (path: string) => void; mobile?: boolean }) {
+  return <nav aria-label="Main navigation" className={mobile
+    ? 'app-bottom-nav fixed inset-x-0 z-40 mx-auto flex w-[min(24rem,calc(100vw-2rem))] items-center justify-between rounded-[1.35rem] border border-[#b48ab346] bg-[#211827ed] p-1.5 shadow-[0_12px_36px_#09070db3] backdrop-blur-xl lg:hidden'
+    : 'hidden items-center gap-1 rounded-full border border-[#b48ab344] bg-[#241a2bbb] p-1 shadow-inner shadow-white/[.03] backdrop-blur-xl lg:flex'}>
+    {destinations.map(({ label, path: destination, icon }) => {
+      const active = path === destination || (destination === '/app' && path === '/app/')
+      return <button
+        key={destination}
+        type="button"
+        aria-current={active ? 'page' : undefined}
+        aria-label={label}
+        onClick={() => navigate(destination)}
+        className={mobile
+          ? `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[1rem] px-1 text-[.67rem] leading-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] ${active ? 'bg-[#6c5278a8] text-[#fff2fa]' : 'text-[#c4b4cd] hover:bg-[#47365080]'}`
+          : `flex min-h-10 items-center gap-2 rounded-full px-3 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] ${active ? 'bg-[#6c5278a8] text-[#fff2fa]' : 'text-[#c4b4cd] hover:bg-[#47365080]'}`}
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={mobile ? 'h-[1.2rem] w-[1.2rem]' : 'h-4 w-4'}>{icon}</svg>
+        <span>{label}</span>
+      </button>
+    })}
+  </nav>
 }
 
 function CenterCard({ title, children }: { title: string; children: ReactNode }) {
@@ -105,16 +137,15 @@ function AppContent() {
   }
 
   if (auth.kind === 'signedIn') {
-    return <Shell action={<div className="flex flex-wrap items-center gap-4">
-      <button type="button" className="link-button text-sm" onClick={() => navigate('/app')} aria-current={path === '/app' ? 'page' : undefined}>Shifts</button>
-      <button type="button" className="link-button text-sm" onClick={() => navigate('/app/reports')} aria-current={path === '/app/reports' ? 'page' : undefined}>Earnings</button>
-      <button type="button" className="link-button text-sm" onClick={() => navigate('/app/profiles')} aria-current={path === '/app/profiles' ? 'page' : undefined}>Wage profiles</button>
-      <button type="button" className="link-button text-sm" onClick={signOut} disabled={signOutPending}>{signOutPending ? 'Signing out…' : 'Sign out'}</button>
+    return <Shell navigation={<AppNavigation path={path} navigate={navigate} mobile />} action={<div className="flex items-center gap-3 sm:gap-4">
+      <AppNavigation path={path} navigate={navigate} />
+      <button type="button" className="link-button text-xs sm:text-sm" onClick={signOut} disabled={signOutPending}>{signOutPending ? 'Signing out…' : 'Sign out'}</button>
     </div>}>
       {signOutError ? <p role="alert" className="mt-6 text-[#f3b2ca]">{signOutError}</p> : null}
       {path === '/app/profiles' ? <WageProfiles key={auth.user.id} userId={auth.user.id} onBack={() => navigate('/app')} />
         : path === '/app/reports' ? <EarningsReports key={auth.user.id} userId={auth.user.id} />
-          : <ShiftLogger key={auth.user.id} userId={auth.user.id} />}
+          : path === '/app/history' ? <ShiftHistory key={auth.user.id} userId={auth.user.id} onBack={() => navigate('/app')} />
+            : <ShiftLogger key={auth.user.id} userId={auth.user.id} onViewAll={() => navigate('/app/history')} />}
     </Shell>
   }
 

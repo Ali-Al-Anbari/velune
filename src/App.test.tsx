@@ -24,6 +24,12 @@ vi.mock('./shift/ShiftLogger', () => ({
 vi.mock('./earnings/EarningsReports', () => ({
   EarningsReports: () => <h1>Earnings reports</h1>,
 }))
+vi.mock('./earnings/WageProfiles', () => ({
+  WageProfiles: () => <h1>Wage profiles</h1>,
+}))
+vi.mock('./shift/ShiftHistory', () => ({
+  ShiftHistory: () => <h1>Full shift history</h1>,
+}))
 
 const confirmedUser = { id: 'user-a', email: 'a@example.com', email_confirmed_at: '2026-10-20T00:00:00Z' }
 
@@ -123,9 +129,42 @@ describe('Velune authentication', () => {
     mock.getUser.mockResolvedValue({ data: { user: confirmedUser }, error: null })
     render(<App />)
     await screen.findByRole('heading', { name: 'Current shift' })
-    fireEvent.click(screen.getByRole('button', { name: 'Earnings' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Earnings' })[0]!)
     expect(await screen.findByRole('heading', { name: 'Earnings reports' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/app/reports')
+  })
+
+  it('opens full shift history from protected navigation', async () => {
+    window.history.replaceState(null, '', '/app')
+    mock.getUser.mockResolvedValue({ data: { user: confirmedUser }, error: null })
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Current shift' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'History' })[0]!)
+    expect(await screen.findByRole('heading', { name: 'Full shift history' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/history')
+  })
+
+  it('exposes four keyboard-accessible destinations and marks the current route active', async () => {
+    window.history.replaceState(null, '', '/app')
+    mock.getUser.mockResolvedValue({ data: { user: confirmedUser }, error: null })
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Current shift' })
+
+    const navs = screen.getAllByRole('navigation', { name: 'Main navigation' })
+    expect(navs).toHaveLength(2)
+    expect(navs[1]).toHaveClass('app-bottom-nav', 'lg:hidden')
+    expect(navs[0]).toHaveClass('hidden', 'lg:flex')
+    for (const nav of navs) {
+      expect(nav.querySelector('[aria-current="page"]')).toHaveTextContent('Shifts')
+      for (const destination of ['Shifts', 'History', 'Earnings', 'Profiles']) {
+        expect(nav.querySelector(`button[aria-label="${destination}"]`)).toBeInTheDocument()
+      }
+    }
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Profiles' })[0]!)
+    expect(await screen.findByRole('heading', { name: 'Wage profiles' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/profiles')
+    expect(navs[0]!.querySelector('[aria-current="page"]')).toHaveTextContent('Profiles')
   })
 
   it('signs out and removes protected content', async () => {
