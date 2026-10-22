@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createManualShift, manualShiftErrorMessage, updateCompletedShift, type ManualShiftInput } from './api'
+import { createManualShift, deleteCompletedShift, deleteCompletedShiftErrorMessage, manualShiftErrorMessage, updateCompletedShift, type ManualShiftInput } from './api'
 
 const db = vi.hoisted(() => ({ rpc: vi.fn() }))
 vi.mock('../lib/supabase', () => ({
@@ -32,6 +32,20 @@ describe('manual shift RPC API', () => {
       p_ended_at: input.ended_at, p_wage_profile_id: 'profile-a',
       p_hourly_wage_override_cents: 2025, p_breaks: input.breaks,
     })
+  })
+
+  it('calls only the completed-shift delete RPC with the selected row ID', async () => {
+    db.rpc.mockResolvedValueOnce({ data: null, error: null })
+    await expect(deleteCompletedShift('shift-a')).resolves.toBeNull()
+    expect(db.rpc).toHaveBeenCalledWith('delete_completed_shift', { p_shift_id: 'shift-a' })
+  })
+
+  it.each([
+    [{ code: '22023', message: 'Active shifts cannot be deleted' }, 'Active shifts cannot be deleted. End the shift first.'],
+    [{ code: '42501', message: 'Completed shift not found' }, 'This completed shift is no longer available to delete. Refresh and try again.'],
+    [new TypeError('Failed to fetch'), 'Could not reach Velune. Check your connection and retry.'],
+  ])('maps delete errors safely', (cause, expected) => {
+    expect(deleteCompletedShiftErrorMessage(cause)).toBe(expected)
   })
 
   it('surfaces a server-side validation or ownership failure', async () => {

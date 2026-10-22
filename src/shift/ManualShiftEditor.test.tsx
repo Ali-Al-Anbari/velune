@@ -4,7 +4,7 @@ import { ManualShiftEditor } from './ManualShiftEditor'
 import { localDateTimeInput, type ShiftRecord } from './time'
 import type { WageProfile } from '../earnings/api'
 
-const api = vi.hoisted(() => ({ createManualShift: vi.fn(), updateCompletedShift: vi.fn() }))
+const api = vi.hoisted(() => ({ createManualShift: vi.fn(), updateCompletedShift: vi.fn(), deleteCompletedShift: vi.fn() }))
 vi.mock('./api', async (importOriginal) => ({ ...await importOriginal<typeof import('./api')>(), ...api }))
 
 const profile: WageProfile = {
@@ -25,13 +25,13 @@ const completed: ShiftRecord = {
   tip_tax_withheld_cents: 300,
 }
 
-beforeEach(() => { vi.clearAllMocks(); api.createManualShift.mockResolvedValue(completed); api.updateCompletedShift.mockResolvedValue(completed) })
+beforeEach(() => { vi.clearAllMocks(); api.createManualShift.mockResolvedValue(completed); api.updateCompletedShift.mockResolvedValue(completed); api.deleteCompletedShift.mockResolvedValue(undefined) })
 afterEach(cleanup)
 
 describe('manual shift editor', () => {
   it('creates an overnight completed shift with a default profile, override and unpaid break', async () => {
     const onSaved = vi.fn().mockResolvedValue(undefined)
-    render(<ManualShiftEditor shift={null} profiles={[profile]} onCancel={vi.fn()} onSaved={onSaved} />)
+    render(<ManualShiftEditor shift={null} profiles={[profile]} onCancel={vi.fn()} onSaved={onSaved} onDeleted={async () => {}} />)
     const dialog = screen.getByRole('dialog', { name: 'Add shift' })
     expect(within(dialog).getByLabelText('Wage profile')).toHaveValue('profile-a')
     fireEvent.change(within(dialog).getByLabelText('Start date and time'), { target: { value: localDateTimeInput(oldStart) } })
@@ -61,7 +61,7 @@ describe('manual shift editor', () => {
   })
 
   it('edits a completed shift while retaining unchanged timestamps, wage snapshot context, and breaks', async () => {
-    render(<ManualShiftEditor shift={completed} profiles={[profile, secondProfile]} onCancel={vi.fn()} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={completed} profiles={[profile, secondProfile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
     const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
     fireEvent.change(within(dialog).getByLabelText('Wage profile'), { target: { value: 'profile-b' } })
     fireEvent.change(within(dialog).getByLabelText(/Hourly wage override/), { target: { value: '23.45' } })
@@ -69,6 +69,7 @@ describe('manual shift editor', () => {
     await waitFor(() => expect(api.updateCompletedShift).toHaveBeenCalledOnce())
     const [shiftId, version, input] = api.updateCompletedShift.mock.calls[0]!
     expect([shiftId, version]).toEqual(['shift-a', 4])
+    expect(api.createManualShift).not.toHaveBeenCalled()
     expect(input.started_at).toBe(oldStart)
     expect(input.ended_at).toBe(oldEnd)
     expect(input.wage_profile_id).toBe('profile-b')
@@ -78,7 +79,7 @@ describe('manual shift editor', () => {
 
   it('keeps the saved profile and override inputs unchanged when editing only shift times', async () => {
     const savedWage = { ...completed, hourly_wage_cents_snapshot: 1750, hourly_wage_override_cents: null }
-    render(<ManualShiftEditor shift={savedWage} profiles={[{ ...profile, hourly_wage_cents: 2500 }]} onCancel={vi.fn()} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={savedWage} profiles={[{ ...profile, hourly_wage_cents: 2500 }]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
     const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
     expect(within(dialog).getByLabelText('Wage profile')).toHaveValue('profile-a')
     expect(within(dialog).getByLabelText(/Hourly wage override/)).toHaveValue('')
@@ -90,9 +91,95 @@ describe('manual shift editor', () => {
     expect(input.hourly_wage_override_cents).toBeNull()
   })
 
+  it('keeps a saved null profile null when the editor has a default profile available', async () => {
+    const legacy = { ...completed, wage_profile_id: null, wage_profile_name_snapshot: null, hourly_wage_cents_snapshot: null }
+    render(<ManualShiftEditor shift={legacy} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
+    expect(within(dialog).getByLabelText('Wage profile')).toHaveValue('')
+    fireEvent.change(within(dialog).getByLabelText('Start date and time'), { target: { value: localDateTimeInput('2024-06-05T20:00:00Z') } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(api.updateCompletedShift).toHaveBeenCalledOnce())
+    expect(api.updateCompletedShift.mock.calls[0]?.slice(0, 2)).toEqual(['shift-a', 4])
+    expect(api.updateCompletedShift.mock.calls[0]?.[2].wage_profile_id).toBeNull()
+    expect(api.createManualShift).not.toHaveBeenCalled()
+  })
+
+  it('prevents rapid duplicate edit submissions and never falls back to create on a stale edit', async () => {
+    let resolveEdit!: (value: ShiftRecord) => void
+    api.updateCompletedShift.mockReturnValueOnce(new Promise((resolve) => { resolveEdit = resolve }))
+    const onSaved = vi.fn().mockResolvedValue(undefined)
+    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={onSaved} onDeleted={async () => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
+    fireEvent.change(within(dialog).getByLabelText(/Hourly wage override/), { target: { value: '21.00' } })
+    const form = within(dialog).getByRole('button', { name: 'Save changes' }).closest('form')!
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    expect(api.updateCompletedShift).toHaveBeenCalledOnce()
+    expect(api.updateCompletedShift.mock.calls[0]?.[0]).toBe(completed.id)
+    expect(api.createManualShift).not.toHaveBeenCalled()
+    resolveEdit(completed)
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+  })
+
+  it('keeps stale edits open and reports conflict without creating a replacement shift', async () => {
+    api.updateCompletedShift.mockRejectedValueOnce({ code: '40001', message: 'This shift changed elsewhere.' })
+    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
+    fireEvent.change(within(dialog).getByLabelText(/Hourly wage override/), { target: { value: '21.00' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('This shift changed elsewhere')
+    expect(api.updateCompletedShift).toHaveBeenCalledWith('shift-a', 4, expect.anything())
+    expect(api.createManualShift).not.toHaveBeenCalled()
+    expect(within(dialog).getByRole('button', { name: 'Save changes' })).toBeEnabled()
+  })
+
+  it('requires confirmation before deleting and leaves the shift untouched when canceled', async () => {
+    const onDeleted = vi.fn().mockResolvedValue(undefined)
+    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={onDeleted} />)
+    const dialog = screen.getByRole('dialog', { name: 'Edit shift' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete shift' }))
+    const confirmation = screen.getByRole('alertdialog', { name: 'Delete this shift?' })
+    expect(confirmation).toHaveTextContent('Wed, Jun 5, 2024')
+    expect(confirmation).toHaveTextContent('Thu, Jun 6, 2024')
+    expect(confirmation).toHaveTextContent('breaks, individual tips, and recorded tip withholding')
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }))
+    expect(api.deleteCompletedShift).not.toHaveBeenCalled()
+    expect(onDeleted).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
+  })
+
+  it('does not expose deletion for an active shift', () => {
+    render(<ManualShiftEditor shift={{ ...completed, ended_at: null }} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
+    expect(screen.queryByRole('button', { name: 'Delete shift' })).not.toBeInTheDocument()
+  })
+
+  it('deletes only after confirmation, disables repeat deletion, and reports failures', async () => {
+    let resolveDelete!: (value: undefined) => void
+    api.deleteCompletedShift.mockReturnValueOnce(new Promise((resolve) => { resolveDelete = resolve }))
+    const onDeleted = vi.fn().mockResolvedValue(undefined)
+    const view = render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={onDeleted} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete shift' }))
+    const confirm = screen.getByRole('alertdialog', { name: 'Delete this shift?' })
+    const deleteButton = within(confirm).getByRole('button', { name: 'Confirm delete' })
+    fireEvent.click(deleteButton)
+    fireEvent.click(deleteButton)
+    expect(api.deleteCompletedShift).toHaveBeenCalledOnce()
+    expect(deleteButton).toBeDisabled()
+    resolveDelete(undefined)
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('shift-a'))
+    view.unmount()
+
+    api.deleteCompletedShift.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete shift' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach Velune')
+    expect(screen.getByRole('dialog', { name: 'Edit shift' })).toBeInTheDocument()
+  })
+
   it('shows a safe classified server error instead of a generic connection message', async () => {
     api.createManualShift.mockRejectedValueOnce({ code: '23P01', message: 'This time overlaps another shift', details: 'private database detail' })
-    render(<ManualShiftEditor shift={null} profiles={[]} onCancel={vi.fn()} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={null} profiles={[]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
     const dialog = screen.getByRole('dialog', { name: 'Add shift' })
     fireEvent.change(within(dialog).getByLabelText('Start date and time'), { target: { value: localDateTimeInput(oldStart) } })
     fireEvent.change(within(dialog).getByLabelText('End date and time'), { target: { value: localDateTimeInput(oldEnd) } })
@@ -102,7 +189,7 @@ describe('manual shift editor', () => {
   })
 
   it('rejects overlapping breaks before making a request', async () => {
-    render(<ManualShiftEditor shift={null} profiles={[]} onCancel={vi.fn()} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={null} profiles={[]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
     const dialog = screen.getByRole('dialog', { name: 'Add shift' })
     fireEvent.change(within(dialog).getByLabelText('Start date and time'), { target: { value: localDateTimeInput(oldStart) } })
     fireEvent.change(within(dialog).getByLabelText('End date and time'), { target: { value: localDateTimeInput(oldEnd) } })
@@ -122,7 +209,7 @@ describe('manual shift editor', () => {
   })
 
   it('allows removing the final break from a completed shift', async () => {
-    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(screen.getByText('No breaks recorded.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
@@ -132,7 +219,7 @@ describe('manual shift editor', () => {
 
   it('requires confirmation before discarding unsaved edits', () => {
     const onCancel = vi.fn()
-    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={onCancel} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={completed} profiles={[profile]} onCancel={onCancel} onSaved={async () => {}} onDeleted={async () => {}} />)
     fireEvent.change(screen.getByLabelText(/Hourly wage override/), { target: { value: '21.00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Your unsaved shift changes will be lost.')
@@ -144,7 +231,7 @@ describe('manual shift editor', () => {
 
   it('shows a failed save without closing the editor', async () => {
     api.createManualShift.mockRejectedValueOnce(new Error('Network unavailable'))
-    render(<ManualShiftEditor shift={null} profiles={[]} onCancel={vi.fn()} onSaved={async () => {}} />)
+    render(<ManualShiftEditor shift={null} profiles={[]} onCancel={vi.fn()} onSaved={async () => {}} onDeleted={async () => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Add completed shift' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach Velune. Check your connection and retry.')
     expect(screen.getByRole('dialog', { name: 'Add shift' })).toBeInTheDocument()

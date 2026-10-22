@@ -295,10 +295,23 @@ export function ShiftLogger({ userId }: { userId: string }) {
     }
   }
 
+  async function manualShiftDeleted(shiftId: string) {
+    setManualEditor(null)
+    setHistory((previous) => previous.filter((item) => item.id !== shiftId))
+    setCompletedId((previous) => previous === shiftId ? null : previous)
+    setNotice('Shift deleted.')
+    try {
+      await refresh()
+    } catch {
+      setNotice('Shift deleted. Refresh your shifts to load the latest history.')
+    }
+  }
+
   const activeBreak = active?.breaks.find((item) => !item.ended_at)
   const totals = active ? shiftTotals(active, nowMs) : null
   const activeBreakMs = activeBreak ? Math.max(0, nowMs - Date.parse(activeBreak.started_at)) : 0
   const completed = history.find((item) => item.id === completedId)
+  const visibleHistory = completedId ? history.filter((item) => item.id !== completedId) : history
   const controlsDisabled = Boolean(busy || loadError)
 
   return <div className="relative z-10 w-full py-12 sm:py-16" aria-label="Shift logger">
@@ -360,13 +373,13 @@ export function ShiftLogger({ userId }: { userId: string }) {
 
       {completed ? <section className="mt-10" aria-labelledby="completed-title"><h2 id="completed-title" className="mb-4 font-serif text-3xl">Completed shift summary</h2><HistoryItem shift={completed} nowMs={nowMs} onChanged={() => refreshTipShift(completed.id)} onEdit={() => setManualEditor({ shift: completed })} highlighted /></section> : null}
       <section className="mt-12" aria-labelledby="history-title"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h2 id="history-title" className="font-serif text-3xl sm:text-4xl">Shift history</h2><div className="flex items-center gap-4"><button type="button" className="link-button text-sm" onClick={() => void refresh().catch(() => {})}>Refresh</button><button type="button" className="rounded-xl bg-[#e9a4bf] px-4 py-2.5 text-sm font-semibold text-[#241426] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2bfd2] disabled:cursor-wait disabled:opacity-55" disabled={Boolean(profileError)} onClick={() => setManualEditor({ shift: null })}>Add shift</button></div></div>
-        {history.length === 0 ? <div className={`${panel} p-8 text-center text-[#c9bfd0]`}>No completed shifts yet.</div> : <div className="space-y-3">{history.map((item) => <HistoryItem key={item.id} shift={item} nowMs={nowMs} onChanged={() => refreshTipShift(item.id)} onEdit={() => setManualEditor({ shift: item })} />)}</div>}
+        {visibleHistory.length === 0 ? <div className={`${panel} p-8 text-center text-[#c9bfd0]`}>{completed ? 'No other completed shifts yet.' : 'No completed shifts yet.'}</div> : <div className="space-y-3">{visibleHistory.map((item) => <HistoryItem key={item.id} shift={item} nowMs={nowMs} onChanged={() => refreshTipShift(item.id)} onEdit={() => setManualEditor({ shift: item })} />)}</div>}
         {historyError ? <p role="alert" className="mt-4 text-sm text-[#f3b2ca]">{historyError}</p> : null}
         {hasMore ? <button type="button" className={`${secondaryButton} mt-5 w-full`} disabled={historyBusy} onClick={() => void moreHistory()}>{historyBusy ? 'Loading…' : 'Load more shifts'}</button> : null}
       </section>
     </> : null}
 
-    {manualEditor ? <Suspense fallback={<p role="status" className="fixed inset-x-4 bottom-4 z-50 rounded-xl bg-[#33243d] p-4 text-sm text-[#f4eaf7]">Opening shift editor…</p>}><ManualShiftEditor shift={manualEditor.shift} profiles={profiles} onCancel={() => setManualEditor(null)} onSaved={manualShiftSaved} /></Suspense> : null}
+    {manualEditor ? <Suspense fallback={<p role="status" className="fixed inset-x-4 bottom-4 z-50 rounded-xl bg-[#33243d] p-4 text-sm text-[#f4eaf7]">Opening shift editor…</p>}><ManualShiftEditor shift={manualEditor.shift} profiles={profiles} onCancel={() => setManualEditor(null)} onSaved={manualShiftSaved} onDeleted={manualShiftDeleted} /></Suspense> : null}
 
     {confirmEnd && active ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#090711cc] px-6" role="presentation">
       <section role="dialog" aria-modal="true" aria-labelledby="confirm-title" className={`${panel} w-full max-w-md p-6 sm:p-8`}>
