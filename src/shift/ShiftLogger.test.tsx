@@ -99,38 +99,31 @@ describe('shift logger', () => {
     expect(card).toHaveTextContent('After tip withholding')
     expect(card).toHaveTextContent('$169.50')
     expect(card).toHaveTextContent('Hourly-wage taxes and other deductions are not included.')
-    expect(card).toHaveTextContent('Breaks · 15m paid')
+    expect(within(card).getByText((_, element) => element?.tagName === 'P' && element.textContent === 'Breaks · 15m')).toBeInTheDocument()
     expect(card).not.toHaveTextContent('Paid breaks')
     expect(card).not.toHaveTextContent('Unpaid breaks')
     const grossLabel = within(card).getByText('Gross earnings')
     expect(grossLabel.nextElementSibling).not.toHaveClass('text-[#e9a4bf]')
     const afterWithholdingLabel = within(card).getByText('After tip withholding')
     expect(afterWithholdingLabel.nextElementSibling).toHaveClass('text-[#e9a4bf]')
-    const summary = within(card).getByText('Shift details').closest('summary')!
-    const details = summary.parentElement as HTMLDetailsElement
-    expect(details).not.toHaveAttribute('open')
     const editShift = within(card).getByRole('button', { name: 'Edit shift' })
     expect(editShift).toBeVisible()
     expect(editShift.closest('details')).toBeNull()
-    expect(within(card).getByRole('button', { name: 'Manage tips' })).toBeVisible()
-    fireEvent.click(summary)
-    expect(details).toHaveProperty('open', true)
-    expect(within(details).queryByText('Paid breaks')).not.toBeInTheDocument()
-    expect(within(details).queryByText('Unpaid breaks')).not.toBeInTheDocument()
-    expect(within(details).queryByLabelText('Tip tax withheld ($)')).not.toBeInTheDocument()
-    fireEvent.click(within(details).getByRole('button', { name: 'Edit tip tax withholding' }))
-    expect(within(details).getByLabelText('Tip tax withheld ($)')).toHaveValue('3.50')
-    expect(within(details).queryByRole('button', { name: 'Manage tips' })).not.toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'Edit Money' })).toBeVisible()
+    expect(within(card).queryByText('Shift details')).not.toBeInTheDocument()
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit Money' }))
+    expect(within(card).getByLabelText('Tip tax withheld ($)')).toHaveValue('3.50')
+    expect(within(card).getByRole('form', { name: 'Add tip' })).toBeInTheDocument()
   })
 
   it.each([
     ['zero', [], null],
-    ['paid-only', [{ id: 'p', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:10:00Z', is_paid: true }], 'Breaks · 10m paid'],
-    ['unpaid-only', [{ id: 'u', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:30:00Z', is_paid: false }], 'Breaks · 30m unpaid'],
+    ['paid-only', [{ id: 'p', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:10:00Z', is_paid: true }], 'Breaks · 10m'],
+    ['unpaid-only', [{ id: 'u', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:30:00Z', is_paid: false }], 'Breaks · 30m'],
     ['mixed', [
       { id: 'u', shift_id: base.id, started_at: '2026-10-21T10:00:00Z', ended_at: '2026-10-21T10:20:00Z', is_paid: false },
       { id: 'p', shift_id: base.id, started_at: '2026-10-21T10:20:00Z', ended_at: '2026-10-21T10:30:00Z', is_paid: true },
-    ], 'Breaks · 20m unpaid · 10m paid'],
+    ], 'Breaks · 30m'],
   ])('shows one compact break summary for %s history', async (_kind, breaks, summaryText) => {
     const saved = { ...base, started_at: '2026-10-21T09:00:00Z', ended_at: '2026-10-21T17:00:00Z', breaks }
     api.loadShiftSnapshot.mockResolvedValue(snapshot(null, [saved]))
@@ -139,7 +132,7 @@ describe('shift logger', () => {
     if (summaryText === null) {
       expect(within(card).queryByText(/Breaks ·|Paid breaks|Unpaid breaks/)).not.toBeInTheDocument()
     } else {
-      expect(within(card).getAllByText(summaryText, { exact: true })).toHaveLength(1)
+      expect(within(card).getByText((_, element) => element?.tagName === 'P' && element.textContent === summaryText)).toBeInTheDocument()
       expect(card).not.toHaveTextContent('Paid breaks')
       expect(card).not.toHaveTextContent('Unpaid breaks')
     }

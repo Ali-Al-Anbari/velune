@@ -37,6 +37,16 @@ describe('tip tax withholding editor', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('saved')
   })
 
+  it('clears recorded withholding after a shift has ended while preserving blank versus zero', async () => {
+    render(<TipTaxWithheldEditor shift={{ ...shift, ended_at: '2026-10-21T17:00:00Z', tip_tax_withheld_cents: 325 }} onChanged={async () => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit tip tax withholding' }))
+    const amount = screen.getByLabelText('Tip tax withheld ($)')
+    expect(amount).toHaveValue('3.25')
+    fireEvent.change(amount, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save withholding' }))
+    await waitFor(() => expect(api.setShiftTipTaxWithheld).toHaveBeenCalledWith('shift-a', null))
+  })
+
   it('displays an explicitly saved zero as $0.00 instead of blank', () => {
     render(<TipTaxWithheldEditor shift={{ ...shift, tip_tax_withheld_cents: 0 }} onChanged={async () => {}} />)
     expect(screen.getByText('$0.00')).toBeInTheDocument()

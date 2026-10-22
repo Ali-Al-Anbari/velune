@@ -21,7 +21,7 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('earnings reports UI', () => {
-  it('shows report totals, the final after-withholding highlight, and profile breakdown', async () => {
+  it('shows report totals and omits the wage profile breakdown for one reporting group', async () => {
     render(<EarningsReports userId="user-a" />)
     expect(await screen.findByText('$172.00')).toBeInTheDocument()
     expect(screen.getByText('Gross wages').parentElement).toHaveTextContent('$150.00')
@@ -30,8 +30,21 @@ describe('earnings reports UI', () => {
     expect(screen.getByText('Recorded tip withholding').parentElement).toHaveTextContent('$3.00')
     expect(screen.getByText('Earnings after tip withholding').parentElement).toHaveTextContent('$172.00')
     expect(screen.getByText('Not final net pay. Hourly-wage taxes and other deductions are not included.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Wage profile breakdown' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Wage profile breakdown' })).not.toBeInTheDocument()
+  })
+
+  it('shows groups only when there are multiple distinct saved groups, including no profile', async () => {
+    api.loadEarningsReportShifts.mockResolvedValueOnce([
+      shift,
+      { ...shift, id: 'other', wage_profile_id: 'profile-b', wage_profile_name_snapshot: 'Night shift', tips: [], tip_tax_withheld_cents: 0 },
+      { ...shift, id: 'none', wage_profile_id: null, wage_profile_name_snapshot: null, tips: [], tip_tax_withheld_cents: null },
+    ])
+    render(<EarningsReports userId="user-a" />)
+    const heading = await screen.findByRole('heading', { name: 'Wage profile breakdown' })
+    expect(heading).toBeInTheDocument()
     expect(screen.getByText('Day shift')).toBeInTheDocument()
+    expect(screen.getByText('Night shift')).toBeInTheDocument()
+    expect(screen.getByText('No profile')).toBeInTheDocument()
   })
 
   it('loads previous periods and applies custom date ranges', async () => {
@@ -81,7 +94,7 @@ describe('earnings reports UI', () => {
     expect(screen.getByText('$177.00')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Wage information is missing for 1 shift')
     expect(screen.getByText('Known gross wages').parentElement).toHaveTextContent('$150.00')
-    expect(screen.getByText('Gross earnings').parentElement).toHaveTextContent('Incomplete')
-    expect(screen.queryByText('Earnings after tip withholding')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Gross earnings').some((item) => item.parentElement?.textContent?.includes('Incomplete'))).toBe(true)
+    expect(screen.getAllByText('Earnings after tip withholding')).toHaveLength(2)
   })
 })

@@ -154,16 +154,22 @@ export function EarningsReports({ userId }: { userId: string }) {
               <Metric label="Recorded tip withholding" value={report.tipTaxWithheldCents == null ? 'Not entered' : formatCents(report.tipTaxWithheldCents)} />
             </dl>
 
-            <section className={`${card} mt-4`} aria-labelledby="profile-breakdown-title">
+            {report.wageProfiles.length >= 2 ? <section className={`${card} mt-4`} aria-labelledby="profile-breakdown-title">
               <header className="mb-4 flex items-center justify-between gap-4"><h2 id="profile-breakdown-title" className="font-serif text-2xl">Wage profile breakdown</h2><span className="text-xs text-[#ac9bb7]">{report.shiftCount} {report.shiftCount === 1 ? 'shift' : 'shifts'}</span></header>
-              {report.wageProfiles.length === 0 ? <p className="text-sm text-[#b9a9c4]">No worked hours in this period.</p> : <ul className="divide-y divide-[#9b719a30]">
-                {report.wageProfiles.map((item) => <li key={item.name} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3 first:pt-0 last:pb-0">
-                  <div className="min-w-0"><p className="truncate text-sm font-medium text-[#f4eaf7]">{item.name}</p><p className="mt-0.5 text-xs text-[#ac9bb7]">{compactDuration(item.workedMs)}</p></div>
-                  <div className="text-right"><p className="text-sm tabular-nums text-[#d8c8e2]">{item.knownWageShiftCount === 0 && item.missingWageShiftCount > 0 ? 'Unavailable' : `${formatCents(item.knownWagesCents)}${item.missingWageShiftCount > 0 ? ' known' : ''}`}</p>
-                    {item.missingWageShiftCount > 0 ? <p className="mt-0.5 text-[11px] text-[#c5ad8a]">{item.missingWageShiftCount} missing wage {item.missingWageShiftCount === 1 ? 'snapshot' : 'snapshots'}</p> : null}</div>
+              <ul className="divide-y divide-[#9b719a30]">
+                {report.wageProfiles.map((item) => <li key={item.key} className="py-4 first:pt-0 last:pb-0">
+                  <div className="mb-3 flex items-baseline justify-between gap-3"><p className="truncate text-sm font-medium text-[#f4eaf7]">{item.name}</p><p className="shrink-0 text-xs text-[#ac9bb7]">{compactDuration(item.workedMs)}</p></div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 xl:grid-cols-6">
+                    <div><dt className="text-[11px] text-[#ac9bb7]">Gross wages</dt><dd className="mt-0.5 text-sm tabular-nums text-[#e8d8ec]">{item.missingWageShiftCount > 0 && item.knownWageShiftCount === 0 ? 'Unavailable' : `${formatCents(item.knownWagesCents)}${item.missingWageShiftCount > 0 ? ' known' : ''}`}</dd></div>
+                    <div><dt className="text-[11px] text-[#ac9bb7]">Tips</dt><dd className="mt-0.5 text-sm tabular-nums text-[#e8d8ec]">{formatCents(item.totalTipsCents)}</dd></div>
+                    <div><dt className="text-[11px] text-[#ac9bb7]">Tip withholding</dt><dd className="mt-0.5 text-sm tabular-nums text-[#e8d8ec]">{item.tipTaxWithheldCents == null ? 'Not entered' : formatCents(item.tipTaxWithheldCents)}</dd></div>
+                    <div><dt className="text-[11px] text-[#ac9bb7]">Gross earnings</dt><dd className="mt-0.5 text-sm tabular-nums text-[#e8d8ec]">{item.grossEarningsCents == null ? 'Incomplete' : formatCents(item.grossEarningsCents)}</dd></div>
+                    <div className="sm:col-span-2"><dt className="text-[11px] text-[#ac9bb7]">Earnings after tip withholding</dt><dd className="mt-0.5 text-sm tabular-nums text-[#e9a4bf]">{item.earningsAfterTipWithholdingCents == null ? `${formatCents(item.knownEarningsAfterTipWithholdingCents)} known` : formatCents(item.earningsAfterTipWithholdingCents)}</dd></div>
+                  </dl>
+                  {item.missingWageShiftCount > 0 ? <p className="mt-2 text-[11px] text-[#c5ad8a]">{item.missingWageShiftCount} shift{item.missingWageShiftCount === 1 ? '' : 's'} with missing wage information</p> : null}
                 </li>)}
-              </ul>}
-            </section>
+              </ul>
+            </section> : null}
           </>}
   </section>
 }
